@@ -39,9 +39,22 @@ type PVLabel struct {
 	// start of phys diag cylinder
 	PhysDiagDAddr DAddr
 
-	SectorStart     uint16
-	SectorSize      uint16
-	PreCompCylinder uint16
+	SectorStart     uint16 // 0x94
+	SectorSize      uint16 // 0x96
+	PreCompCylinder uint16 // 0x98
+
+	// SR10 extension (disk_$pv_label_t in domain_os/disk/disk_internal.h)
+	Reserved9A      [6]byte   // 0x9A (an SR10.3 invol writes 0,0,1 here)
+	AddrEnd         uint32    // 0xA0 0 = no end
+	ReservedA4      uint32    // 0xA4
+	NumParts        uint16    // 0xA8 volumes in a striped set (1)
+	PartNum         uint16    // 0xAA this volume's place in the set (1)
+	PartDev         [8]uint16 // 0xAC
+	Interleave      uint16    // 0xBC striping mode
+	SectorsPerBlock uint16    // 0xBE hardware sectors per block (1)
+	WordC0          uint16    // 0xC0 (1 on an SR10.3 volume)
+	RevisionLen     uint16    // 0xC2
+	Revision        [32]byte  // 0xC4 invol's "revision 10.x" text
 }
 
 func (l PVLabel) validate() error {
@@ -85,6 +98,10 @@ func (l PVLabel) Print() {
 	fmt.Printf("SectorStart: %d\n", l.SectorStart)
 	fmt.Printf("SectorSize: %d\n", l.SectorSize)
 	fmt.Printf("PreComp: %d\n", l.PreCompCylinder)
+	fmt.Printf("AddrEnd: %d NumParts: %d PartNum: %d Interleave: %d SectorsPerBlock: %d\n", l.AddrEnd, l.NumParts, l.PartNum, l.Interleave, l.SectorsPerBlock)
+	if n := int(l.RevisionLen); n > 0 && n <= len(l.Revision) {
+		fmt.Printf("Revision: %s\n", string(l.Revision[:n]))
+	}
 	fmt.Printf("Logical Volumes:\n")
 	for i := 0; i < MaxLogicalVolumes; i++ {
 		fmt.Printf("  LV%d: block %d / %d (alt)\n", i, l.LVDAddr[i], l.AltLVLabelDAddr[i])
@@ -92,7 +109,20 @@ func (l PVLabel) Print() {
 }
 
 func Mount(diskImage string) (*PhysicalVolume, error) {
-	file, err := os.Open(diskImage)
+	return mount(diskImage, false)
+}
+
+// MountWritable opens the image read-write.
+func MountWritable(diskImage string) (*PhysicalVolume, error) {
+	return mount(diskImage, true)
+}
+
+func mount(diskImage string, writable bool) (*PhysicalVolume, error) {
+	flag := os.O_RDONLY
+	if writable {
+		flag = os.O_RDWR
+	}
+	file, err := os.OpenFile(diskImage, flag, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -124,7 +154,9 @@ func Mount(diskImage string) (*PhysicalVolume, error) {
 
 func (pvol *PhysicalVolume) Unmount() error {
 	if pvol.file != nil {
-		return pvol.file.Close()
+		err := pvol.file.Close()
+		pvol.file = nil
+		return err
 	}
 	return nil
 }

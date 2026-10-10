@@ -1,6 +1,8 @@
 package fs
 
 import (
+	"bytes"
+	"encoding/binary"
 	"fmt"
 
 	"github.com/domainos-archeology/apollofs/pkg/uid"
@@ -113,6 +115,26 @@ func (lvol *LogicalVolume) PrintLabel() {
 	// now print out our parsed vtoc map:
 	fmt.Println("VTOC Map:")
 	lvol.VTOCMap.Print()
+}
+
+// StartDAddr is the physical block of LV block 0 (the LV label).
+func (lvol *LogicalVolume) StartDAddr() DAddr { return lvol.startDAddr }
+
+// PhysicalVolume returns the volume this LV lives on.
+func (lvol *LogicalVolume) PhysicalVolume() *PhysicalVolume { return lvol.pvol }
+
+// WriteLabel stores Label into LV block 0, keeping the block header.
+func (lvol *LogicalVolume) WriteLabel() error {
+	block, err := lvol.ReadBlock(0)
+	if err != nil {
+		return err
+	}
+	var buf bytes.Buffer
+	if err := binary.Write(&buf, binary.BigEndian, &lvol.Label); err != nil {
+		return err
+	}
+	copy(block.Data[:], buf.Bytes())
+	return lvol.WriteBlock(0, block)
 }
 
 func (lvol *LogicalVolume) ReadBlock(blockNum DAddr) (*Block, error) {
