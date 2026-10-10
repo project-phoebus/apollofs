@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/domainos-archeology/apollofs/pkg/fs"
+	"github.com/domainos-archeology/apollofs/pkg/managers"
 	"github.com/spf13/cobra"
 )
 
@@ -83,10 +84,35 @@ func block(diskImage string, physDAddr string) error {
 	return pvol.Unmount()
 }
 
+func vtoceInfo(diskImage, p string) error {
+	v, err := managers.Open(diskImage, false)
+	if err != nil {
+		return err
+	}
+	defer v.Close()
+	u, err := v.Names.Resolve(p)
+	if err != nil {
+		return err
+	}
+	x, err := v.VTOC.GetIndexForUID(u)
+	if err != nil {
+		return err
+	}
+	e, err := v.VTOC.GetEntry(x)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("%s: %v (type %s)\n", p, x, managers.TypeName(e.Header.ObjectTypeDefUID))
+	e.Print()
+	fmt.Printf("  attrs: %s\n", managers.Attrs(e.Attrs()))
+	return nil
+}
+
 func init() {
 	rootCmd.AddCommand(infoCommand)
 
 	infoCommand.AddCommand(labelsCommand)
+	infoCommand.AddCommand(vtoceCommand)
 	infoCommand.AddCommand(vtocCommand)
 	infoCommand.AddCommand(blockCommand)
 
@@ -98,6 +124,15 @@ var infoCommand = &cobra.Command{
 	Use:   "info [labels|vtoc|block]",
 	Short: "Dump information about filesystem structures",
 	Long:  "",
+}
+
+var vtoceCommand = &cobra.Command{
+	Use:   "vtoce path",
+	Short: "Dump the VTOCE of the object a path names (and its attribute image)",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return vtoceInfo(diskImage, args[0])
+	},
 }
 
 var labelsCommand = &cobra.Command{

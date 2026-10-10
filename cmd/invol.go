@@ -1,188 +1,84 @@
 package cmd
 
 import (
-	"encoding/binary"
 	"errors"
 	"fmt"
-	"io"
-	"os"
 	"strconv"
-	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/domainos-archeology/apollofs/pkg/drives"
-	"github.com/domainos-archeology/apollofs/pkg/fs"
-	"github.com/domainos-archeology/apollofs/pkg/uid"
-	"github.com/domainos-archeology/apollofs/pkg/util"
+	"github.com/domainos-archeology/apollofs/pkg/managers"
 )
 
 var (
 	sysbootPath    string
 	dtype          string
 	listDriveTypes bool
+	involPVName    string
+	involLVName    string
+	involNodeID    string
+	involNodeName  string
+	involRevision  string
 )
 
-func writeBlockAt(file *os.File, block fs.Block, blockDAddr fs.DAddr) error {
-	_, err := file.Seek(int64(blockDAddr*fs.BlockSize), io.SeekStart)
-	if err != nil {
-		return err
-	}
-	err = binary.Write(file, binary.BigEndian, &block)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func createPVLabelBlock(diskType drives.DriveType, lvdaddr, altlvdaddr fs.DAddr) fs.Block {
-	return fs.NewBlock(
-		fs.BlockHeader{
-			ObjectUID: uid.UIDpvlabel,
-		},
-		fs.PVLabel{
-			Version:             1,
-			APOLLO:              [6]byte{'A', 'P', 'O', 'L', 'L', 'O'},
-			Name:                [32]byte{'A', 'P', 'O', 'L', 'L', 'O', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' '},
-			UID:                 uid.UID{Hi: 0x776175af, Lo: 0x10012345}, // copied from my mame image
-			DriveType:           1,                                       // is this DTYPE from EH87?
-			TotalBlocksInVolume: diskType.TotalBlocks(),
-			BlocksPerTrack:      diskType.BlocksPerTrack,
-			TracksPerCylinder:   diskType.Heads,
-			LVDAddr:             [10]fs.DAddr{lvdaddr, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-			AltLVLabelDAddr:     [10]fs.DAddr{altlvdaddr, 0, 0, 0, 0, 0, 0, 0, 0},
-
-			// next three copied from mame image.  no clue what they should be.
-			SectorStart:     5,
-			SectorSize:      2260,
-			PreCompCylinder: 5,
-		},
-	)
-}
-
-func createLVLabelBlock(daddr fs.DAddr) fs.Block {
-	return fs.NewBlock(
-		fs.BlockHeader{
-			ObjectUID:        uid.UIDlvlabel,
-			PageWithinObject: int32(daddr) - 1,
-			PVBlockDAddr:     daddr,
-		},
-		fs.LVLabel{
-			Version:        1, // 1 == >= SR10
-			Name:           [32]byte{' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' '},
-			UID:            uid.UID{Hi: 0x776175d5, Lo: 0x20012345}, // copied from my mame image
-			LabelWritten:   util.TimestampToApolloEpoch(time.Now()),
-			BootTime:       util.TimestampToApolloEpoch(time.Now()),
-			DismountedTime: util.TimestampToApolloEpoch(time.Now()),
-		},
-	)
-}
-
-func copySysboot(file *os.File, sysbootPath string) error {
-	sysbootFile, err := os.Open(sysbootPath)
-	if err != nil {
-		return err
-	}
-	defer sysbootFile.Close()
-
-	// copy the sysboot file a block at a time
-	for i := 0; i < 10; i++ {
-		var block fs.Block
-		block.Header = fs.BlockHeader{
-			ObjectUID:        uid.UID{Hi: 0x776175d5, Lo: 0x30012345},
-			PageWithinObject: int32(i),
-			PVBlockDAddr:     fs.DAddr(2 + i),
-		}
-		err = binary.Read(sysbootFile, binary.BigEndian, &block.Data)
-		if err != nil {
-			return err
-		}
-		err = writeBlockAt(file, block, fs.DAddr(2+i))
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
 func invol(diskImage string) error {
-	// create a new disk image at that path
 	dtypeInt, err := strconv.ParseInt(dtype, 16, 64)
 	if err != nil {
 		return errors.New("driveType must be a hex string.  use --list-dtypes to see the list")
 	}
-
 	diskType, err := drives.GetDriveType(int16(dtypeInt))
 	if err != nil {
 		return fmt.Errorf("unknown driveType '%s'.  use --list-dtypes to see the list", dtype)
 	}
-
-	totalBlocks := diskType.TotalBlocks()
-
-	file, err := os.Create(diskImage)
+	nodeID, err := strconv.ParseUint(involNodeID, 16, 32)
+	if err != nil {
+		return fmt.Errorf("bad node id %q", involNodeID)
+	}
+	v, err := managers.Format(diskImage, managers.FormatOptions{
+		DriveType: diskType, PVName: involPVName, LVName: involLVName,
+		NodeID: uint32(nodeID), NodeName: involNodeName, Revision: involRevision,
+	})
 	if err != nil {
 		return err
 	}
-	defer file.Close()
-
-	// initialize the image to be completely empty
-	bytesToWrite := make([]byte, totalBlocks*fs.BlockSize)
-
-	_, err = file.Write(bytesToWrite)
-	if err != nil {
+	l := v.LV.Label
+	fmt.Printf("%s: %s, %d blocks; BAT at %d (%d blocks free), %d VTOC hash buckets at %d, %d BAT partitions\n",
+		diskImage, diskType.Name, diskType.TotalBlocks(), l.BATHeader.FirstBATBlockDAddr, l.BATHeader.NumFreeBlocks,
+		l.VTOCHeader.VTOCSizeInBlocks, v.LV.VTOCMap[0].FirstBlockDAddr, l.NumPartitions)
+	if err := v.Close(); err != nil {
 		return err
 	}
-
-	mainLVLabelDAddr := fs.DAddr(1)
-	altLVLabelDAddr := fs.DAddr(totalBlocks / 2)
-
-	// write our pv label
-	writeBlockAt(file, createPVLabelBlock(diskType, mainLVLabelDAddr, altLVLabelDAddr), 0)
-
-	// write our lv labels
-	writeBlockAt(file, createLVLabelBlock(mainLVLabelDAddr), mainLVLabelDAddr) // primary
-	writeBlockAt(file, createLVLabelBlock(altLVLabelDAddr), altLVLabelDAddr)   // alternate
-
 	if sysbootPath != "" {
-		err = copySysboot(file, sysbootPath)
-		if err != nil {
-			return err
-		}
+		return CPboot(diskImage, sysbootPath)
 	}
-
 	return nil
 }
 
 func init() {
 	rootCmd.AddCommand(involCommand)
-
-	involCommand.Flags().StringVarP(&sysbootPath, "cpboot", "b", "", "Path to sysboot file to copy to disk image")
-	involCommand.Flags().StringVarP(&dtype, "driveType", "t", "", "string ID of drive type (e.g. '105' for PRIAM 7050).")
-	involCommand.Flags().BoolVarP(&listDriveTypes, "list-dtypes", "l", false, "List available drive types")
+	f := involCommand.Flags()
+	f.StringVarP(&sysbootPath, "cpboot", "b", "", "Path to sysboot file to copy to disk image")
+	f.StringVarP(&dtype, "driveType", "t", "105", "drive type in hex (e.g. '105' for PRIAM 7050)")
+	f.BoolVarP(&listDriveTypes, "list-dtypes", "l", false, "List available drive types")
+	f.StringVar(&involPVName, "name", "APOLLO", "physical volume name")
+	f.StringVar(&involLVName, "lvname", "", "logical volume name")
+	f.StringVar(&involNodeID, "node-id", "12345", "node id (hex) for generated UIDs")
+	f.StringVar(&involNodeName, "node-name", "", "name \"//\" catalogs \"/\" under (default node_<id>)")
+	f.StringVar(&involRevision, "revision", "revision 10.2", "invol revision text in the PV label")
 }
 
 var involCommand = &cobra.Command{
 	Use:   "invol",
-	Short: "Initialize a disk image",
-	Long:  ``,
+	Short: "Initialize a disk image (PV/LV labels, BAT, VTOC, / and //)",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if listDriveTypes {
 			for _, dt := range drives.GetDriveTypes() {
-				fmt.Printf("0x%03X: %s\n", dt.DType, dt.Name)
+				fmt.Printf("0x%03X: %-20s %4d cyl %2d heads %2d blk/trk = %d blocks\n", dt.DType, dt.Name,
+					dt.Cylinders, dt.Heads, dt.BlocksPerTrack, dt.TotalBlocks())
 			}
 			return nil
 		}
-
-		err := invol(diskImage)
-		if err != nil {
-			return err
-		}
-
-		if sysbootPath != "" {
-			// TODO(toshok) copy the sysboot file to the disk image
-		}
-
-		return nil
+		return invol(diskImage)
 	},
 }

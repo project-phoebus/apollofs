@@ -2,146 +2,100 @@ package cmd
 
 import (
 	"fmt"
-	"math"
 	"os"
+
+	"github.com/spf13/cobra"
 
 	"github.com/domainos-archeology/apollofs/pkg/fs"
 	"github.com/domainos-archeology/apollofs/pkg/managers"
-	"github.com/spf13/cobra"
 )
 
-func CopyIn(diskImage string, args []string) error {
-	src := args[0]
-	dest := args[1]
+var (
+	copyinAttrs   string
+	copyinType    string
+	copyinLike    string
+	copyinReplace bool
+	copyinQuiet   bool
+)
 
-	pvol, err := fs.Mount(diskImage)
-	if err != nil {
-		return err
-	}
-	defer pvol.Unmount()
-
-	lvol := pvol.LV
-
-	bat := managers.NewBATManager(lvol)
-	vm := managers.NewVTOCManager(lvol, bat)
-	file := managers.NewFileManager(lvol, vm)
-	nm := managers.NewNamingManager(lvol, file, vm)
-
-	if err = bat.Mount(); err != nil {
-		return err
-	}
-
-	if err = vm.Mount(); err != nil {
-		return err
-	}
-
-	_, err = nm.CreateFile(dest) // TODO(toshok) do we need to pass a uid here?
-	if err != nil {
-		return err
-	}
-
-	srcFile, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer srcFile.Close()
-
-	srcInfo, err := srcFile.Stat()
-	if err != nil {
-		return err
-	}
-
-	numBlocksRequired := int(math.Ceil(float64(srcInfo.Size()) / 1024.0))
-
-	fmt.Printf("Copying %d blocks (%d bytes) from %s to %s...\n", numBlocksRequired, srcInfo.Size(), src, dest)
-
-	u, err := nm.Resolve(src)
-	if err != nil {
-		return err
-	}
-
-	vtoce, err := vm.GetEntryForUID(u)
-	if err != nil {
-		return err
-	}
-
-	if vtoce.IsDirectory() {
-		return errNotAFile
-	}
-
-	fileBlockDAddrs, err := vm.GetFMBlocks(vtoce)
-	if err != nil {
-		return err
-	}
-
-	fmt.Printf("Copying %d blocks (%d bytes) from %s to %s...\n", len(fileBlockDAddrs), vtoce.Header.CurrentLength, src, dest)
-
-	destFile, err := os.Create(dest)
-	if err != nil {
-		return err
-	}
-	defer destFile.Close()
-
-	remainingLength := int64(vtoce.Header.CurrentLength)
-
-	for i, daddr := range fileBlockDAddrs {
-		block, err := lvol.ReadBlock(daddr)
+// fileAttrs builds the attribute image for a new or replaced object from
+// --attrs, --like (an object already on the volume) or the default, then
+// applies --type.
+func fileAttrs(v *managers.Volume, attrsHex, like, typ string) (*managers.Attrs, error) {
+	var a *managers.Attrs
+	switch {
+	case attrsHex != "":
+		p, err := managers.ParseAttrs(attrsHex)
 		if err != nil {
-			return err
+			return nil, err
 		}
-
-		if block.Header.ObjectUID != vtoce.Header.ObjectUID {
-			panic("block.ObjectUID != vtoce.ObjectUID")
+		a = &p
+	case like != "":
+		e, err := v.Names.Stat(like)
+		if err != nil {
+			return nil, fmt.Errorf("--like %s: %w", like, err)
 		}
-
-		if block.Header.PageWithinObject != int32(i) {
-			panic(fmt.Sprintf("block.PageWithinObject %d != i %d", block.Header.PageWithinObject, i))
-		}
-
-		if remainingLength >= 1024 {
-			// we can write the full length of the block data
-			n, err := destFile.Write(block.Data[:])
-			if err != nil {
-				return err
-			}
-			if n != 1024 {
-				panic("short write")
-			}
-			remainingLength -= int64(n)
-		} else {
-			// we need to truncate the write to remainingLength.  we're at the
-			// end of the file.
-			n, err := destFile.Write(block.Data[:remainingLength])
-			if err != nil {
-				return err
-			}
-			if n != int(remainingLength) {
-				panic("short write")
-			}
-
-			// we're done.  make sure there are somehow not more blocks
-			if i != len(fileBlockDAddrs)-1 {
-				panic("more blocks after the last one written")
-			}
-			break
-		}
+		p := managers.Attrs(e.Attrs())
+		a = &p
 	}
+	if typ != "" {
+		t, err := managers.ParseTypeUID(typ)
+		if err != nil {
+			return nil, err
+		}
+		if a == nil {
+			p := managers.DefaultFileAttrs
+			a = &p
+		}
+		e := fs.VTOCE{}
+		e.SetAttrs(*a)
+		e.Header.ObjectTypeDefUID = t
+		p := managers.Attrs(e.Attrs())
+		a = &p
+	}
+	return a, nil
+}
 
-	fmt.Println("done.")
-
-	return nil
+func CopyIn(diskImage string, src, dest string) error {
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	v, err := managers.Open(diskImage, true)
+	if err != nil {
+		return err
+	}
+	a, err := fileAttrs(v, copyinAttrs, copyinLike, copyinType)
+	if err != nil {
+		v.Close()
+		return err
+	}
+	if _, err := v.Names.WriteFile(dest, data, a, copyinReplace); err != nil {
+		v.Close()
+		return err
+	}
+	if !copyinQuiet {
+		fmt.Printf("%s -> %s (%d bytes)\n", src, dest, len(data))
+	}
+	return v.Close()
 }
 
 func init() {
 	rootCmd.AddCommand(copyInCommand)
+	f := copyInCommand.Flags()
+	f.StringVarP(&copyinAttrs, "attrs", "a", "", "VTOCE attribute image (0x78 bytes hex, as an rbak tape records it)")
+	f.StringVarP(&copyinType, "type", "t", "", "type UID: a name (unstruct, uasc, coff, obj, rec, ...) or hhhhhhhh.llllllll")
+	f.StringVar(&copyinLike, "like", "", "take attributes from this object on the volume")
+	f.BoolVarP(&copyinReplace, "replace", "r", false, "overwrite an existing file (it keeps its UID)")
+	f.BoolVarP(&copyinQuiet, "quiet", "q", false, "no progress line")
 }
 
 var copyInCommand = &cobra.Command{
 	Use:    "copyin [src] [dest]",
 	Short:  "Copy a file from the host to the disk image",
-	Long:   ``,
+	Args:   cobra.ExactArgs(2),
 	PreRun: toggleDebug,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return CopyIn(diskImage, args)
+		return CopyIn(diskImage, args[0], args[1])
 	},
 }
