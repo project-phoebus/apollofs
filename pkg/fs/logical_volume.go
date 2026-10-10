@@ -109,3 +109,7 @@ func (lvol *LogicalVolume) PrintLabel() {
 func (lvol *LogicalVolume) ReadBlock(blockNum DAddr) (*Block, error) {
 	return lvol.pvol.ReadBlock(lvol.startDAddr + blockNum)
 }
+
+func (lvol *LogicalVolume) WriteBlock(blockNum DAddr, block *Block) error {
+	return lvol.pvol.WriteBlock(lvol.startDAddr+blockNum, block)
+}

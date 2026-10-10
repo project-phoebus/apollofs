@@ -1,31 +1,94 @@
 package managers
 
 import (
+	"errors"
+
 	"github.com/domainos-archeology/apollofs/pkg/fs"
 	"github.com/domainos-archeology/apollofs/pkg/uid"
 	"golang.org/x/exp/slices"
 )
 
+var errFreeVTOCENotFound = errors.New("free VTOCE not found")
+
 type VTOCManager struct {
 	lvol *fs.LogicalVolume
+	bat  *BATManager
 }
 
-func NewVTOCManager(lvol *fs.LogicalVolume) *VTOCManager {
+func NewVTOCManager(lvol *fs.LogicalVolume, bat *BATManager) *VTOCManager {
 	return &VTOCManager{
 		lvol,
+		bat,
 	}
+}
+
+func (vm *VTOCManager) Mount() error {
+	return nil
+}
+
+func (vm *VTOCManager) readVTOCBucketBlock(daddr fs.DAddr) (*fs.VTOCBucketBlock, error) {
+	block, err := vm.lvol.ReadBlock(daddr)
+	if err != nil {
+		return nil, err
+	}
+
+	var vtocBucketBlock fs.VTOCBucketBlock
+	err = block.ReadInto(&vtocBucketBlock)
+	if err != nil {
+		return nil, err
+	}
+
+	return &vtocBucketBlock, nil
+}
+
+func (vm *VTOCManager) findVTOCBucketBlockForUID(header fs.VTOCEHeader) (fs.VTOCX, error) {
+	hashValue := vm.hashUID(header.ObjectUID)
+
+	startingBlockNumber := hashValue >> 2
+	idx := hashValue & 0x3
+
+	blockDAddr := fs.DAddr(startingBlockNumber) + vm.lvol.VTOCMap[0].FirstBlockDAddr
+
+	for blockDAddr != 0 {
+		// fmt.Println("looking in block", blockDAddr)
+		// fmt.Println(2)
+
+		vtocBucketBlock, err := vm.readVTOCBucketBlock(blockDAddr)
+		if err != nil {
+			return 0, err
+		}
+
+		// fmt.Println(4)
+		// check the entries in bucket `idx` for an unused bucket
+		for _, entry := range vtocBucketBlock.Buckets[idx].Entries {
+			if entry.UID == uid.Empty /* XXX not sure what the signal for unused slot is... */ {
+				return entry.VTOCX, nil
+			}
+		}
+
+		// fmt.Println(5)
+		// if we didn't find it, follow the chain and keep looking
+		blockDAddr = vtocBucketBlock.Buckets[idx].NextBlockDAddr
+		idx = uint32(vtocBucketBlock.Buckets[idx].NextIndex)
+	}
+
+	return 0, errFreeVTOCENotFound
 }
 
 func (vm *VTOCManager) AllocateEntry(header fs.VTOCEHeader) (fs.VTOCX, error) {
 	// hash the uid, locate the appropriate vtoc block, checking for a free vtoce there.
-	// hashValue := vm.hashUID(header.ObjectUID)
 
-	// startingBlockNumber := hashValue >> 2
-	// idx := hashValue & 0x3
+	vtocx, err := vm.findVTOCBucketBlockForUID(header)
+	if err == errFreeVTOCENotFound {
+	} else if err != nil {
+		return 0, err
+	}
 
-	// if there isn't a free vtoce, call BATManager.AllocateBlock to create a new vtoc extension block and add it to the chain.
+	// if there isn't a free vtoce, call BATManager.AllocateBlock to create a
+	// new vtoc extension block and add it to the chain.
 
-	// now that we have a vtoc block with a vtoce there, fill it in and return a vtocx referring to it.
+	// now that we have a vtoc block with a vtoce there, fill it in and return a
+	// vtocx referring to it.
 
 	notImplemented()
 	return 0, nil

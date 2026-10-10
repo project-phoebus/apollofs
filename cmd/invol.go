@@ -158,7 +158,7 @@ func init() {
 	rootCmd.AddCommand(involCommand)
 
 	involCommand.Flags().StringVarP(&sysbootPath, "cpboot", "b", "", "Path to sysboot file to copy to disk image")
-	involCommand.Flags().StringVarP(&dtype, "driveType", "s", "", "string ID of drive type (e.g. '105' for PRIAM 7050).")
+	involCommand.Flags().StringVarP(&dtype, "driveType", "t", "", "string ID of drive type (e.g. '105' for PRIAM 7050).")
 	involCommand.Flags().BoolVarP(&listDriveTypes, "list-dtypes", "l", false, "List available drive types")
 }
 
@@ -173,6 +173,16 @@ var involCommand = &cobra.Command{
 			}
 			return nil
 		}
-		return invol(diskImage)
+
+		err := invol(diskImage)
+		if err != nil {
+			return err
+		}
+
+		if sysbootPath != "" {
+			// TODO(toshok) copy the sysboot file to the disk image
+		}
+
+		return nil
 	},
 }

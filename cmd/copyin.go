@@ -22,9 +22,18 @@ func CopyIn(diskImage string, args []string) error {
 
 	lvol := pvol.LV
 
-	vm := managers.NewVTOCManager(lvol)
+	bat := managers.NewBATManager(lvol)
+	vm := managers.NewVTOCManager(lvol, bat)
 	file := managers.NewFileManager(lvol, vm)
 	nm := managers.NewNamingManager(lvol, file, vm)
+
+	if err = bat.Mount(); err != nil {
+		return err
+	}
+
+	if err = vm.Mount(); err != nil {
+		return err
+	}
 
 	_, err = nm.CreateFile(dest) // TODO(toshok) do we need to pass a uid here?
 	if err != nil {
@@ -38,6 +47,10 @@ func CopyIn(diskImage string, args []string) error {
 	defer srcFile.Close()
 
 	srcInfo, err := srcFile.Stat()
+	if err != nil {
+		return err
+	}
+
 	numBlocksRequired := int(math.Ceil(float64(srcInfo.Size()) / 1024.0))
 
 	fmt.Printf("Copying %d blocks (%d bytes) from %s to %s...\n", numBlocksRequired, srcInfo.Size(), src, dest)

@@ -18,9 +18,18 @@ func List(diskImage string, paths []string) error {
 
 	lvol := pvol.LV
 
-	vm := managers.NewVTOCManager(lvol)
+	bat := managers.NewBATManager(lvol)
+	vm := managers.NewVTOCManager(lvol, bat)
 	file := managers.NewFileManager(lvol, vm)
 	nm := managers.NewNamingManager(lvol, file, vm)
+
+	if err = bat.Mount(); err != nil {
+		return err
+	}
+
+	if err = vm.Mount(); err != nil {
+		return err
+	}
 
 	for _, path := range paths {
 		uid, err := nm.Resolve(path)

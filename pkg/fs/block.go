@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/domainos-archeology/apollofs/pkg/uid"
+	"github.com/domainos-archeology/apollofs/pkg/util"
 )
 
 const BlockDataSize = 1024
@@ -17,8 +18,7 @@ type DAddr uint32
 type BlockHeader struct {
 	ObjectUID        uid.UID
 	PageWithinObject int32
-	LastWritten      int32
-
+	LastWritten      uint32
 	BlockSystemTypes int32
 	Ignore1          int32
 	Ignore2          int16
@@ -44,6 +44,9 @@ func (h *BlockHeader) Print() {
 	fmt.Printf("  System type: %d\n", h.SystemType())
 	fmt.Printf("  Checksum: %d\n", h.DataChecksum)
 	fmt.Printf("  Block PV DAddr: %d\n", h.PVBlockDAddr)
+	fmt.Printf("  Last Writter: %s\n", util.FormatTimestamp(h.LastWritten))
+	fmt.Printf("  Ignore1: %d\n", h.Ignore1)
+	fmt.Printf("  Ignore2: %d\n", h.Ignore2)
 }
 
 type Block struct {

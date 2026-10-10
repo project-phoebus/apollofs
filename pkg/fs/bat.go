@@ -22,3 +22,7 @@ func (h BATHeader) Print() {
 	fmt.Println("  VolumeTrouble:", h.VolumeTrouble)
 	fmt.Println("  BatStep:", h.BatStep)
 }
+
+type BATBlock struct {
+	Entries [256]uint32
+}

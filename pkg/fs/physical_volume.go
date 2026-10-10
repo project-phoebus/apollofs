@@ -158,3 +158,17 @@ func (pvol *PhysicalVolume) ReadBlock(blockNum DAddr) (*Block, error) {
 
 	return &block, nil
 }
+
+func (pvol *PhysicalVolume) WriteBlock(blockNum DAddr, block *Block) error {
+	_, err := pvol.file.Seek(int64(blockNum*BlockSize), io.SeekStart)
+	if err != nil {
+		return err
+	}
+
+	err = binary.Write(pvol.file, binary.BigEndian, block)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
