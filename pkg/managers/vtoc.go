@@ -83,6 +83,7 @@ func (vm *VTOCManager) AllocateEntry(header fs.VTOCEHeader) (fs.VTOCX, error) {
 	} else if err != nil {
 		return 0, err
 	}
+	_ = vtocx // TODO: used once the fill-in below is implemented
 
 	// if there isn't a free vtoce, call BATManager.AllocateBlock to create a
 	// new vtoc extension block and add it to the chain.
