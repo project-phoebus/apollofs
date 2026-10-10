@@ -20,6 +20,7 @@ var (
 	involNodeID    string
 	involNodeName  string
 	involRevision  string
+	involPaging    int
 )
 
 func invol(diskImage string) error {
@@ -38,6 +39,7 @@ func invol(diskImage string) error {
 	v, err := managers.Format(diskImage, managers.FormatOptions{
 		DriveType: diskType, PVName: involPVName, LVName: involLVName,
 		NodeID: uint32(nodeID), NodeName: involNodeName, Revision: involRevision,
+		PagingFilePages: involPaging,
 	})
 	if err != nil {
 		return err
@@ -66,6 +68,7 @@ func init() {
 	f.StringVar(&involNodeID, "node-id", "12345", "node id (hex) for generated UIDs")
 	f.StringVar(&involNodeName, "node-name", "", "name \"//\" catalogs \"/\" under (default node_<id>)")
 	f.StringVar(&involRevision, "revision", "revision 10.2", "invol revision text in the PV label")
+	f.IntVar(&involPaging, "paging-file", managers.DefaultPagingFilePages, "OS paging file size in pages (0 = none)")
 }
 
 var involCommand = &cobra.Command{

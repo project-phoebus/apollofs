@@ -21,7 +21,7 @@ func newTestVolume(t *testing.T, blocks int) (string, *Volume) {
 	dt, err := drives.GetDriveType(0x105)
 	require.NoError(t, err)
 	path := filepath.Join(t.TempDir(), "test.awd")
-	v, err := Format(path, FormatOptions{DriveType: dt, TotalBlocks: blocks, PVName: "TEST",
+	v, err := Format(path, FormatOptions{DriveType: dt, TotalBlocks: blocks, PVName: "TEST", PagingFilePages: 40,
 		Now: time.Date(1990, 3, 1, 0, 0, 0, 0, time.UTC)})
 	require.NoError(t, err)
 	return path, v
@@ -70,6 +70,8 @@ func TestFormat(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uid.UID{Hi: 0x323}, pf.Header.ObjectTypeDefUID)
 	require.Equal(t, uid.Empty, pf.Header.DirectoryUID)
+	require.Equal(t, uint32(40*1024), pf.Header.CurrentLength)
+	require.Equal(t, uint32(41), pf.Header.BlocksUsed) // 40 pages + a level-1 map block
 	require.Equal(t, 3, r.Objects)
 }
 

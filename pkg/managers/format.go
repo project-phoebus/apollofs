@@ -22,7 +22,16 @@ type FormatOptions struct {
 	NodeName    string // entry in "//" that names "/" ("node_<id>" if empty)
 	Revision    string // invol revision text
 	Now         time.Time
+	// PagingFilePages preallocates the OS paging file (0 = none).
+	PagingFilePages int
 }
+
+// DefaultPagingFilePages is the paging file invol makes by default: 1 MB.
+// OS_$INIT wires the pageable part of the kernel into it page by page
+// (AST_$PMAP_ASSOC), and a page with no disk block is "pmap bad assoc",
+// which OS_$INIT reports as "The OS paging file is too small".  An SR10.3
+// invol made 954 pages.
+const DefaultPagingFilePages = 1024
 
 // FirstDataBlock is the first LV block the BAT represents: LV block 0 is the
 // label and 1..10 hold sysboot's ten pages (cpboot).
@@ -267,6 +276,14 @@ func Format(path string, opt FormatOptions) (*Volume, error) {
 	pfx, err := v.VTOC.AllocateEntry(pf, root.X.BlockDAddr())
 	if err != nil {
 		return nil, err
+	}
+	if opt.PagingFilePages > 0 {
+		if err := v.Files.WriteData(pf, make([]byte, opt.PagingFilePages*pageBytes), 0, pfx.BlockDAddr()); err != nil {
+			return nil, err
+		}
+		if err := v.VTOC.PutEntry(pfx, pf); err != nil {
+			return nil, err
+		}
 	}
 	l.VTOCHeader.OSPagingFileVTOCX = pfx
 	// an SR10.3 invol also leaves the paging file's UID at label+0xF4
