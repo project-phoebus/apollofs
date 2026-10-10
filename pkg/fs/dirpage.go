@@ -353,38 +353,63 @@ func ParseDirEntry(p []byte, off int) (DirEnt, bool, error) {
 	return e, deleted, nil
 }
 
-// DecodeDirectory returns the live entries of every leaf page (sentinel and
-// deleted entries dropped) and the root area of page 0.
+// DecodeDirectory returns the live entries reachable from the root page
+// (sentinel and deleted entries dropped) and the root area of page 0.
+// Pages the B-tree no longer references (left over from splits) are
+// ignored, as dir_$find_entry ignores them.
 func DecodeDirectory(pages [][]byte) ([]DirEnt, DirRootArea, error) {
 	var root DirRootArea
-	if len(pages) == 0 {
+	if len(pages) == 0 || pages[0] == nil {
 		return nil, root, errors.New("empty directory")
 	}
 	if err := binary.Read(bytes.NewReader(pages[0][DirPageHdrSize:]), binary.BigEndian, &root); err != nil {
 		return nil, root, err
 	}
 	var out []DirEnt
-	for _, p := range pages {
-		if p == nil {
-			continue
+	visited := map[int]bool{}
+	var walk func(n, depth int) error
+	walk = func(n, depth int) error {
+		if n >= len(pages) || pages[n] == nil {
+			return fmt.Errorf("directory references missing page %d", n)
 		}
+		if visited[n] || depth > 16 {
+			return fmt.Errorf("directory page %d referenced twice", n)
+		}
+		visited[n] = true
+		p := pages[n]
 		info, err := ParseDirPage(p)
 		if err != nil {
-			return nil, root, err
+			return fmt.Errorf("page %d: %w", n, err)
 		}
-		if info.Kind != DirKindLeaf {
-			continue
+		if n != 0 && int(info.PageNo) != n {
+			return fmt.Errorf("page %d says it is page %d", n, info.PageNo)
 		}
 		for _, off := range info.Offsets {
 			e, deleted, err := ParseDirEntry(p, int(off))
 			if err != nil {
-				return nil, root, err
+				return fmt.Errorf("page %d: %w", n, err)
 			}
-			if deleted || bytes.Equal(e.Name, dirSentinelName) {
+			if deleted {
+				continue
+			}
+			if info.Kind == DirKindInterior {
+				if e.Type != DirEntryInterior {
+					return fmt.Errorf("page %d: entry type %d on an interior page", n, e.Type)
+				}
+				if err := walk(int(e.Extra), depth+1); err != nil {
+					return err
+				}
+				continue
+			}
+			if bytes.Equal(e.Name, dirSentinelName) {
 				continue
 			}
 			out = append(out, e)
 		}
+		return nil
+	}
+	if err := walk(0, 0); err != nil {
+		return nil, root, err
 	}
 	sort.SliceStable(out, func(i, j int) bool { return CompareDirNames(out[i].Name, out[j].Name) < 0 })
 	return out, root, nil

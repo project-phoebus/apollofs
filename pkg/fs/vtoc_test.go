@@ -76,6 +76,13 @@ func TestVTOCEHeaderLayout(t *testing.T) {
 	require.Equal(t, 0x04, int(unsafe.Offsetof(sr10.ObjectUID)))
 	require.Equal(t, 0x0C, int(unsafe.Offsetof(sr10.ObjectTypeDefUID)))
 	require.Equal(t, 0x14, int(unsafe.Offsetof(sr10.CurrentLength)))
+	require.Equal(t, 0x18, int(unsafe.Offsetof(sr10.BlocksUsed)))
+	require.Equal(t, 0x1C, int(unsafe.Offsetof(sr10.DTM)))
+	require.Equal(t, 0x3C, int(unsafe.Offsetof(sr10.DirectoryUID)))
+	require.Equal(t, 0x48, int(unsafe.Offsetof(sr10.OwnerUID)))
+	require.Equal(t, 0x60, int(unsafe.Offsetof(sr10.Rights)))
+	require.Equal(t, 0x74, int(unsafe.Offsetof(sr10.RefCount)))
+	require.Equal(t, 0x88, int(unsafe.Offsetof(sr10.ObjectACLUID)))
 }
 
 // Kernel: vtoce_$old_fm_t (direct 0x40, indirect 0xC0, 0xCC bytes) and

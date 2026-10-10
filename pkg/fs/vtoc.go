@@ -1,6 +1,7 @@
 package fs
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 
@@ -91,40 +92,77 @@ type VTOCEHeaderSR9 struct {
 	Padding [4]byte // Aegis Internals doesn't have this, but EH'87 does.
 }
 
+// VTOCEHeader is the first 0xC4 bytes of an SR10 VTOCE.  Bytes 0x00..0x8F
+// are the object attributes the AST caches (aote_t +0x0C..+0x9B in
+// domain_os/ast/ast.h); an rbak/wbak tape stores 0x00..0x77 of them
+// verbatim in its file and directory records.
 type VTOCEHeader struct {
-	Version          uint8
-	SystemType       uint8
-	Flags            uint16
-	ObjectUID        uid.UID
-	ObjectTypeDefUID uid.UID
-	CurrentLength    uint32
-	BlocksUsed       uint32
-	LastModifiedTime uint32
-	ExtDtm           uint16
-	RefCount         uint16
-	LastUsedTime     uint32
-	U5               uint32
-	U6               uint32
-	U7               uint32
-	U8               uint32
-	U9               uint32
-	DirectoryUID     uid.UID
-	ObjectLockKey    uint32
-	ObjectUserUID    uid.UID
-	ObjectGroupUID   uid.UID
-	ObjectOrgUID     uid.UID
-	U19              uint32
-	U20              uint32
-	U21              uint32
-	U22              uint32
-	U23              uint32
-	U24              uint32
-	U25              uint32
-	U26              uint32
-	U27              uint32
-	U28              uint32
-	ObjectACLUID     uid.UID
-	Padding          [52]byte
+	Version          uint8   // 0x00 object kind (always 1; VTOC_$ALLOCATE forces it)
+	SystemType       uint8   // 0x01 sub type: 0 file, 1 directory, 2 root directory, 4/5 device
+	Flags            uint16  // 0x02 0x8000 = entry in use
+	ObjectUID        uid.UID // 0x04
+	ObjectTypeDefUID uid.UID // 0x0C type UID (0x321 unstruct, 0x322 coff, 0x311 uasc, ...)
+	CurrentLength    uint32  // 0x14 bytes
+	BlocksUsed       uint32  // 0x18 data pages + file-map blocks
+	DTM              [8]byte // 0x1C 48-bit clock + pad: date/time modified
+	DTU              [8]byte // 0x24 date/time used
+	DTC              [8]byte // 0x2C
+	DTA              [8]byte // 0x34 attributes modified
+	DirectoryUID     uid.UID // 0x3C parent directory
+	Node             uint32  // 0x44
+	OwnerUID         uid.UID // 0x48 person
+	GroupUID         uid.UID // 0x50
+	OrgUID           uid.UID // 0x58
+	Rights           [4]byte // 0x60 owner, group, org, world
+	ACLFlags         uint32  // 0x64
+	ACLExt           [3]uint32
+	RefCount         uint16   // 0x74
+	U76              uint16   // 0x76
+	Reserved78       [16]byte // 0x78
+	ObjectACLUID     uid.UID  // 0x88
+	Reserved90       [52]byte // 0x90
+}
+
+// VTOCEAttrSize is how much of a VTOCE header an rbak tape record carries.
+const VTOCEAttrSize = 0x78
+
+// VTOCEFlagInUse marks an allocated VTOCE.
+const VTOCEFlagInUse = 0x8000
+
+// Bytes returns the 0x150-byte on-disk image.
+func (e *VTOCE) Bytes() []byte {
+	var buf bytes.Buffer
+	if err := binary.Write(&buf, binary.BigEndian, e); err != nil {
+		panic(err)
+	}
+	return buf.Bytes()
+}
+
+// VTOCEFromBytes decodes an on-disk VTOCE.
+func VTOCEFromBytes(b []byte) (*VTOCE, error) {
+	var e VTOCE
+	if err := binary.Read(bytes.NewReader(b), binary.BigEndian, &e); err != nil {
+		return nil, err
+	}
+	return &e, nil
+}
+
+// SetAttrs copies an rbak-style 0x78-byte attribute image over the header.
+func (e *VTOCE) SetAttrs(attrs [VTOCEAttrSize]byte) {
+	b := e.Bytes()
+	copy(b, attrs[:])
+	ne, err := VTOCEFromBytes(b)
+	if err != nil {
+		panic(err)
+	}
+	*e = *ne
+}
+
+// Attrs returns header bytes 0x00..0x77.
+func (e *VTOCE) Attrs() [VTOCEAttrSize]byte {
+	var a [VTOCEAttrSize]byte
+	copy(a[:], e.Bytes())
+	return a
 }
 
 type VTOCESR9 struct {
@@ -200,10 +238,7 @@ func (b VTOCBlock) Print() {
 }
 
 func (e VTOCE) IsDirectory() bool {
-	return e.Header.ObjectTypeDefUID == uid.UIDdirectory ||
-		e.Header.ObjectTypeDefUID == uid.UIDunix_directory ||
-		e.Header.SystemType == 2 ||
-		e.Header.SystemType == 1
+	return e.Header.SystemType == 2 || e.Header.SystemType == 1
 }
 
 func (e VTOCE) Print() {
@@ -213,11 +248,9 @@ func (e VTOCE) Print() {
 	fmt.Println("  ObjectACLUID:", e.Header.ObjectACLUID)
 	fmt.Println("  CurrentLength:", e.Header.CurrentLength)
 	fmt.Println("  BlocksUsed:", e.Header.BlocksUsed)
-	fmt.Println("  LastUsedTime:", e.Header.LastUsedTime)
-	fmt.Println("  LastModifiedTime:", e.Header.LastModifiedTime)
+	fmt.Printf("  DTM: %x DTU: %x\n", e.Header.DTM[:6], e.Header.DTU[:6])
 	fmt.Println("  DirectoryUID:", e.Header.DirectoryUID)
-	// fmt.Println("  MoreStuff:", e.Header.MoreStuff)
-	fmt.Println("  ObjectLockKey:", e.Header.ObjectLockKey)
+	fmt.Printf("  Owner/Group/Org: %s %s %s rights %x flags %08x\n", e.Header.OwnerUID, e.Header.GroupUID, e.Header.OrgUID, e.Header.Rights[:], e.Header.ACLFlags)
 	fmt.Println("  FileMap0:")
 	for i, daddr := range e.FileMap0 {
 		if daddr == 0 {

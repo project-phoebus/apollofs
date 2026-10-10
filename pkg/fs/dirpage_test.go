@@ -105,3 +105,23 @@ func TestDirDuplicateName(t *testing.T) {
 	_, err := EncodeDirectory(ents, DirRootArea{}, uid.Empty)
 	require.Error(t, err)
 }
+
+// Pages a split left behind are not part of the directory.
+func TestDirDecodeIgnoresUnreferencedPages(t *testing.T) {
+	var ents []DirEnt
+	for i := 0; i < 200; i++ {
+		ents = append(ents, DirEnt{Type: DirEntryObject, Name: []byte(fmt.Sprintf("n%03d_padding_padding", i))})
+	}
+	pages, err := EncodeDirectory(ents, NewDirRootArea(DirDefProt{}, DirDefProt{}), uid.UID{Hi: 1})
+	require.NoError(t, err)
+	var raw [][]byte
+	for i := range pages {
+		raw = append(raw, pageBytes(pages[i]))
+	}
+	stray := append([]byte(nil), raw[1]...)
+	binary.BigEndian.PutUint16(stray[0xA:], uint16(len(raw)))
+	raw = append(raw, stray)
+	got, _, err := DecodeDirectory(raw)
+	require.NoError(t, err)
+	require.Len(t, got, 200)
+}
