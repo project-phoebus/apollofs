@@ -66,6 +66,11 @@ func TestFormat(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint8(2), re.Header.SystemType)
 	require.Equal(t, uid.UIDroot, re.Header.DirectoryUID)
+	pf, err := v.VTOC.GetEntry(v.LV.Label.VTOCHeader.OSPagingFileVTOCX)
+	require.NoError(t, err)
+	require.Equal(t, uid.UID{Hi: 0x323}, pf.Header.ObjectTypeDefUID)
+	require.Equal(t, uid.Empty, pf.Header.DirectoryUID)
+	require.Equal(t, 3, r.Objects)
 }
 
 func TestFilesRoundTrip(t *testing.T) {

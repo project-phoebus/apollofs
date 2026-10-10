@@ -77,6 +77,12 @@ var rootDirAttrs = mustAttrs("01029000 0000000000000000 0000000000000000 0000040
 	strings.Repeat("0", 4*8*2) + "0000000000000000 00000000" +
 	" 00000542 00000000 00800049 00000000 00800080 00000000 0f05 1005 00400000 00000000 00000000 0000000c 00010000")
 
+// pagingFileAttrs is the OS paging file VTOCE header of an SR10.3 volume:
+// type os_pg_file (0x323), not catalogued, rights 0f/0f/10/0f.
+var pagingFileAttrs = mustAttrs("01009000 0000000000000000 0000032300000000 00000000 00000000" +
+	strings.Repeat("0", 4*8*2) + "0000000000000000 00000000" +
+	" 00000542 00000000 00800049 00000000 00800080 00000000 0f0f 100f 00400000 00000000 00000000 0000000c 00010000")
+
 // ParseDefProt decodes a 0x34-byte (or 0x2C-byte, ACL UID omitted)
 // default-protection slot.
 func ParseDefProt(s string) (fs.DirDefProt, error) {

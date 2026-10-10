@@ -232,6 +232,13 @@ func (v *Volume) Check() (*CheckReport, error) {
 	} else {
 		r.problem("network root: %v", err)
 	}
+	if x := l.VTOCHeader.OSPagingFileVTOCX; x != 0 {
+		if e, err := v.VTOC.GetEntry(x); err != nil {
+			r.problem("paging file VTOCX %v: %v", x, err)
+		} else if !seen[e.Header.ObjectUID] {
+			walk(e.Header.ObjectUID, uid.Empty, "(OS paging file)", 0)
+		}
+	}
 	if x := l.VTOCHeader.SysbootVTOCX; x != 0 {
 		if e, err := v.VTOC.GetEntry(x); err != nil || e.Header.ObjectTypeDefUID != uid.UIDsysboot {
 			r.problem("sysboot VTOCX %v does not name a sysboot object", x)

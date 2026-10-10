@@ -12,7 +12,9 @@ var (
 	rootCmd = &cobra.Command{
 		Use:   "apollofs",
 		Short: "A tool for interacting with Apollo filesystems",
-		Long:  "",
+		// errors are about the image, not the command line
+		SilenceUsage: true,
+		Long:         "",
 	}
 )
 

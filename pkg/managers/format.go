@@ -254,6 +254,24 @@ func Format(path string, opt FormatOptions) (*Volume, error) {
 	}
 	l.VTOCHeader.DiskEntryDirVTOCX = root.X
 	l.VTOCHeader.NetworkRootDirVTOCX = netRoot.X
+
+	// The OS paging file: an empty, uncatalogued os_pg_file object whose
+	// VTOCX OS_$INIT reads from label+0x5C (VTOC header current_vtoce);
+	// the kernel sets its length itself (FILE_$SET_LEN).  Without it the
+	// boot says "Boot device has no OS paging file" and never pages.
+	pf := &fs.VTOCE{}
+	pf.SetAttrs(pagingFileAttrs)
+	t := util.ClockBytes(opt.Now)
+	pf.Header.DTM, pf.Header.DTU, pf.Header.DTC, pf.Header.DTA = t, t, t, t
+	pf.Header.ObjectUID = gen.Next()
+	pfx, err := v.VTOC.AllocateEntry(pf, root.X.BlockDAddr())
+	if err != nil {
+		return nil, err
+	}
+	l.VTOCHeader.OSPagingFileVTOCX = pfx
+	// an SR10.3 invol also leaves the paging file's UID at label+0xF4
+	binary.BigEndian.PutUint32(l.Reserved2[0x24:], pf.Header.ObjectUID.Hi)
+	binary.BigEndian.PutUint32(l.Reserved2[0x28:], pf.Header.ObjectUID.Lo)
 	if err := v.Flush(); err != nil {
 		return nil, err
 	}
