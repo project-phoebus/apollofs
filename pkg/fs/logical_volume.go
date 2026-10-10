@@ -16,18 +16,27 @@ type LogicalVolume struct {
 	VTOCMap VTOCMap
 }
 
+// LVLabel is LV block 0 (bat_$label_t, domain_os/bat/bat.h), 0x308 bytes.
 type LVLabel struct {
-	Version         int16
-	Ignore1         int16
-	Name            [32]byte
-	UID             uid.UID
-	BATHeader       BATHeader
-	VTOCHeader      VTOCHeader
-	LabelWritten    uint32 // time LV label writtern
-	Ignore2         int16
-	LastMountedNode int16
-	BootTime        uint32
-	DismountedTime  uint32
+	Version              int16            // 0x00 0 = pre-SR10, 1 = SR10
+	Ignore1              int16            // 0x02
+	Name                 [32]byte         // 0x04
+	UID                  uid.UID          // 0x24
+	BATHeader            BATHeader        // 0x2C
+	VTOCHeader           VTOCHeader       // 0x4C
+	LabelWritten         uint32           // 0xB0 time LV label written (mount time)
+	LastMountedNode      uint32           // 0xB4 top 12 bits unused, node id below
+	BootTime             uint32           // 0xB8
+	DismountedTime       uint32           // 0xBC
+	CurrentTime          uint32           // 0xC0
+	Reserved1            [10]byte         // 0xC4
+	SalvageFlag          int16            // 0xCE 1 = mounted / needs salvage
+	Reserved2            [0x2c]byte       // 0xD0 (calendar data; last valid time at 0xE6)
+	NumPartitions        uint16           // 0xFC
+	PartitionStartOffset uint16           // 0xFE
+	PartitionSize        uint32           // 0x100
+	Unknown104           uint32           // 0x104
+	Partitions           [64]BATPartition // 0x108
 }
 
 func (l LVLabel) Print() {

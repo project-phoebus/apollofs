@@ -33,7 +33,7 @@ func (fm *FileManager) CreateFile(containingDirectory uid.UID) (uid.UID, error) 
 	//    object.
 	u, err := uid.Generate(
 		0, /*XXX fm.lvol.LastUsedTime*/
-		uint32(fm.lvol.Label.LastMountedNode),
+		fm.lvol.Label.LastMountedNode&0xFFFFF,
 	)
 	if err != nil {
 		return uid.Empty, err

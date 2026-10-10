@@ -7,16 +7,20 @@ import (
 	"github.com/domainos-archeology/apollofs/pkg/uid"
 )
 
+// VTOCHeader is the 100-byte "VTOC Header" of the LV label (label+0x4C),
+// the kernel's per-volume vtoc_$vol_t (domain_os/vtoc/vtoc_internal.h).
 type VTOCHeader struct {
-	Version             int16
-	VTOCSizeInBlocks    int16
-	VTOCBlocksUsed      int32
-	NetworkRootDirVTOCX VTOCX
-	DiskEntryDirVTOCX   VTOCX
-	OSPagingFileVTOCX   VTOCX
-	SysbootVTOCX        VTOCX
-	VTOCMapData         VTOCMapData
-	Unused              [28]byte
+	Version             int16       // 0x00 hash_type: 0/1 UID_$HASH, 2 shift-xor, 3 xor
+	VTOCSizeInBlocks    int16       // 0x02 hash_size: number of hash buckets (4 per bucket block)
+	VTOCBlocksUsed      int32       // 0x04 blocks_added: bucket blocks allocated
+	NetworkRootDirVTOCX VTOCX       // 0x08 name_dir1
+	DiskEntryDirVTOCX   VTOCX       // 0x0C name_dir2
+	OSPagingFileVTOCX   VTOCX       // 0x10 current_vtoce
+	SysbootVTOCX        VTOCX       // 0x14
+	VTOCMapData         VTOCMapData // 0x18 ten {count u16, base u32} bucket-block extents
+	CurBktBlock         uint32      // 0x54 bucket block being handed out for overflow
+	CurBktIdx           uint16      // 0x58 next bucket in it (wraps at 4)
+	Unused              [10]byte    // 0x5A
 }
 type VTOCMapDataSR9 [48]byte
 type VTOCMapData [60]byte
