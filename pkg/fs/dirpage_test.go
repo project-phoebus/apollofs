@@ -125,3 +125,103 @@ func TestDirDecodeIgnoresUnreferencedPages(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, got, 200)
 }
+
+// kernelFind mirrors dir_$find_entry (domain_os/dir/find_entry.c): binary
+// search each page by unsigned bytes, a proper prefix first; interior
+// pages from entry 2 (falling back to the entry before the first larger
+// name), the root page indexing after its root area and every other page
+// from 0x12.  It returns the leaf entry found and the depth descended.
+func kernelFind(t *testing.T, pages [][DirPageSize]byte, name []byte) (DirEnt, bool, int) {
+	p := pages[0][:]
+	base := 0x12 + int(binary.BigEndian.Uint16(p[0x14:]))
+	depth := 0
+	for {
+		depth++
+		n := (int(binary.BigEndian.Uint16(p[0xE:])) - base) / 2
+		off := func(i int) int { return int(binary.BigEndian.Uint16(p[base+2*i-2:])) }
+		interior := p[0]>>6 == 1
+		lo, hi := 1, n
+		if interior {
+			lo = 2
+		}
+		mid, cmp := lo, -1
+		found := false
+		for lo <= hi {
+			mid = (lo + hi) / 2
+			e, _, err := ParseDirEntry(p, off(mid))
+			require.NoError(t, err)
+			cmp = CompareDirNames(name, e.Name)
+			if cmp == 0 {
+				found = true
+				break
+			}
+			if cmp < 0 {
+				hi = mid - 1
+			} else {
+				lo = mid + 1
+			}
+		}
+		if !found && cmp < 0 {
+			mid--
+		}
+		e, _, err := ParseDirEntry(p, off(mid))
+		require.NoError(t, err)
+		if !interior {
+			return e, found, depth
+		}
+		p = pages[e.Extra][:]
+		base = 0x12
+	}
+}
+
+// A directory too big for a two-level tree gets more interior levels, as
+// dir_$insert_entry splits interior pages (up to 8 levels); every name is
+// then found by the kernel's search and the leaf chain lists them in order.
+func TestDirMultiLevel(t *testing.T) {
+	var ents []DirEnt
+	for i := 0; i < 2000; i++ {
+		ents = append(ents, DirEnt{Type: DirEntryObject, Name: []byte(fmt.Sprintf("a_rather_long_file_name_%04d", 1999-i)), UID: uid.UID{Hi: uint32(i + 1), Lo: 7}})
+	}
+	ents = append(ents, DirEnt{Type: DirEntrySoftLink, Name: []byte("A"), LinkText: []byte("x")},
+		DirEnt{Type: DirEntryObject, Name: []byte("a"), UID: uid.UID{Hi: 9, Lo: 9}},
+		DirEnt{Type: DirEntryObject, Name: []byte("a_rather"), UID: uid.UID{Hi: 9, Lo: 10}})
+	pages, err := EncodeDirectory(ents, NewDirRootArea(DirDefProt{}, DirDefProt{}), uid.UID{Hi: 5, Lo: 6})
+	require.NoError(t, err)
+	maxDepth := 0
+	for _, want := range ents {
+		e, found, depth := kernelFind(t, pages, want.Name)
+		require.True(t, found, "%q", want.Name)
+		require.Equal(t, want.UID, e.UID)
+		if depth > maxDepth {
+			maxDepth = depth
+		}
+	}
+	require.Equal(t, 3, maxDepth)
+	_, found, _ := kernelFind(t, pages, []byte("a_rather_long_file_name_0500x"))
+	require.False(t, found)
+	var raw [][]byte
+	for i := range pages {
+		raw = append(raw, pageBytes(pages[i]))
+	}
+	got, _, err := DecodeDirectory(raw)
+	require.NoError(t, err)
+	require.Len(t, got, len(ents))
+	require.Equal(t, "A", string(got[0].Name))
+	require.Equal(t, "a", string(got[1].Name))
+	require.Equal(t, "a_rather", string(got[2].Name))
+	require.Equal(t, "a_rather_long_file_name_0000", string(got[3].Name))
+	// leaves chain 1 -> 2 -> ... in name order and end with 0xFFFF
+	var chained []string
+	for n := 1; n != 0xFFFF; {
+		info, err := ParseDirPage(raw[n])
+		require.NoError(t, err)
+		require.Equal(t, DirKindLeaf, info.Kind)
+		for _, o := range info.Offsets {
+			e, _, _ := ParseDirEntry(raw[n], int(o))
+			chained = append(chained, string(e.Name))
+		}
+		n = int(info.Next)
+	}
+	require.Len(t, chained, len(ents))
+	require.Equal(t, "a_rather_long_file_name_1999", chained[len(chained)-1])
+}

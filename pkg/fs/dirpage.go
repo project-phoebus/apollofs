@@ -205,12 +205,30 @@ func interiorEntry(name []byte, child uint16) []byte {
 // the system can add a few names before it has to split.
 const dirLeafFill = DirPageSize * 7 / 8
 
-var ErrDirTooBig = errors.New("directory too large for a two-level B-tree")
+// DirMaxDepth is the deepest B-tree dir_$insert_entry builds: it refuses
+// to split a root that already sits on 8 levels (max_depth == 8 ->
+// status_$directory_is_full, domain_os/dir/insert_entry.c 0xE4F55A).
+const DirMaxDepth = 8
+
+var ErrDirTooBig = errors.New("directory too large for an 8-level B-tree")
+
+// dirNode is a page of the level being built: the smallest name below it
+// and its page number.
+type dirNode struct {
+	first []byte
+	page  *dirPage
+}
 
 // EncodeDirectory lays the entries out as directory pages: one leaf root
-// page when they fit, otherwise an interior root (page 0) over leaf pages
-// 1..n chained through next-page.  stamp is written into every page of a
-// multi-page directory (the kernel writes a fresh UID per split).
+// page when they fit, otherwise leaf pages 1..n chained through next-page,
+// as many levels of interior pages as it takes (numbered after the
+// leaves, each level chained like the leaves), and an interior root
+// (page 0).  An interior entry names the smallest name of its child, as
+// dir_$insert_entry copies the first name of the new child into the
+// parent; the first entry of the root is the "\0" sentinel the root split
+// writes (dir_$find_entry starts comparing interior pages at entry 2).
+// stamp is written into every page of a multi-page directory (the kernel
+// writes a fresh UID per split).
 func EncodeDirectory(ents []DirEnt, root DirRootArea, stamp uid.UID) ([][DirPageSize]byte, error) {
 	sorted := make([]DirEnt, len(ents))
 	copy(sorted, ents)
@@ -245,38 +263,69 @@ func EncodeDirectory(ents []DirEnt, root DirRootArea, stamp uid.UID) ([][DirPage
 		}
 	}
 
-	// two levels: leaves first
-	var leaves []*dirPage
-	var firstNames [][]byte
-	var cur *dirPage
-	for i, r := range raws {
-		if cur == nil || cur.iend+2 > cur.heap-len(r) || (DirPageSize-cur.heap)+(cur.iend-cur.base)+len(r)+2 > dirLeafFill {
-			cur = newDirPage(DirKindLeaf, uint16(len(leaves)+1), stamp, nil)
-			leaves = append(leaves, cur)
-			firstNames = append(firstNames, sorted[i].Name)
-		}
-		cur.add(r)
+	var all []*dirPage // pages 1.. in page-number order
+	full := func(p *dirPage, size int) bool {
+		return p.iend+2 > p.heap-size || (DirPageSize-p.heap)+(p.iend-p.base)+size+2 > dirLeafFill
 	}
-	rootPage := newDirPage(DirKindInterior, 0, stamp, &root)
-	for i := range leaves {
-		name := firstNames[i]
-		if i == 0 {
-			name = dirSentinelName
+	chain := func(level []dirNode) {
+		for i := 0; i+1 < len(level); i++ {
+			level[i].page.setNext(binary.BigEndian.Uint16(level[i+1].page.buf[0xA:]))
 		}
-		r := interiorEntry(name, uint16(i+1))
-		if !rootPage.fits(len(r)) {
+	}
+	newPage := func(kind int) *dirPage {
+		p := newDirPage(kind, uint16(len(all)+1), stamp, nil)
+		all = append(all, p)
+		return p
+	}
+
+	// leaves
+	var level []dirNode
+	for i, r := range raws {
+		if len(level) == 0 || full(level[len(level)-1].page, len(r)) {
+			level = append(level, dirNode{first: sorted[i].Name, page: newPage(DirKindLeaf)})
+		}
+		level[len(level)-1].page.add(r)
+	}
+	chain(level)
+
+	// interior levels until the root page can hold one entry per node
+	depth := 2
+	for {
+		rootPage := newDirPage(DirKindInterior, 0, stamp, &root)
+		ok := true
+		for i, n := range level {
+			name := n.first
+			if i == 0 {
+				name = dirSentinelName
+			}
+			r := interiorEntry(name, binary.BigEndian.Uint16(n.page.buf[0xA:]))
+			if !rootPage.fits(len(r)) {
+				ok = false
+				break
+			}
+			rootPage.add(r)
+		}
+		if ok {
+			pages := [][DirPageSize]byte{rootPage.buf}
+			for _, p := range all {
+				pages = append(pages, p.buf)
+			}
+			return pages, nil
+		}
+		if depth++; depth > DirMaxDepth || len(all) >= 0xFFFF {
 			return nil, ErrDirTooBig
 		}
-		rootPage.add(r)
-		if i+1 < len(leaves) {
-			leaves[i].setNext(uint16(i + 2))
+		var up []dirNode
+		for _, n := range level {
+			r := interiorEntry(n.first, binary.BigEndian.Uint16(n.page.buf[0xA:]))
+			if len(up) == 0 || full(up[len(up)-1].page, len(r)) {
+				up = append(up, dirNode{first: n.first, page: newPage(DirKindInterior)})
+			}
+			up[len(up)-1].page.add(r)
 		}
+		chain(up)
+		level = up
 	}
-	pages := [][DirPageSize]byte{rootPage.buf}
-	for _, l := range leaves {
-		pages = append(pages, l.buf)
-	}
-	return pages, nil
 }
 
 // DirPageInfo is a decoded page header.

@@ -250,3 +250,32 @@ func TestHashUIDKinds(t *testing.T) {
 	lv.Label.VTOCHeader.Version = 3
 	require.Equal(t, fold(u.Hi)%401, vm.hashUID(u))
 }
+
+// 2,000 long names need a three-level directory B-tree; list and check
+// must agree.
+func TestHugeDirectory(t *testing.T) {
+	path, v := newTestVolume(t, 20000)
+	_, err := v.Names.Mkdir("/d", nil, nil)
+	require.NoError(t, err)
+	for i := 0; i < 2000; i++ {
+		_, err := v.Names.WriteFile(fmt.Sprintf("/d/a_longer_file_name_%04d", i), []byte{byte(i)}, nil, false)
+		require.NoError(t, err)
+	}
+	r := requireClean(t, v)
+	require.Equal(t, 2004, r.Objects) // "/", "//", /d, 2000 files, paging file
+	v = reopen(t, path, v)
+	defer v.Close()
+	u, err := v.Names.Resolve("/d")
+	require.NoError(t, err)
+	d, err := v.Names.ReadDir(u)
+	require.NoError(t, err)
+	require.Len(t, d.Entries, 2000)
+	for i, e := range d.Entries {
+		require.Equal(t, fmt.Sprintf("a_longer_file_name_%04d", i), string(e.Name))
+	}
+	e, err := v.Names.Stat("/d/a_longer_file_name_1234")
+	require.NoError(t, err)
+	got, _ := v.Files.ReadData(e)
+	require.Equal(t, []byte{byte(1234 % 256)}, got)
+	requireClean(t, v)
+}
