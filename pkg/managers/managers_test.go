@@ -167,6 +167,21 @@ func TestLinksAndBigDirectory(t *testing.T) {
 	requireClean(t, v)
 }
 
+// Separate opens (separate tool runs) at the same clock must not reuse UIDs.
+func TestUIDsUniqueAcrossOpens(t *testing.T) {
+	path, v := newTestVolume(t, 8000)
+	now := v.Now()
+	for i := 0; i < 5; i++ {
+		v = reopen(t, path, v)
+		v.Now = func() time.Time { return now }
+		v.uidGen = NewUIDGenerator(now, DefaultNodeID)
+		_, err := v.Names.WriteFile(fmt.Sprintf("/f%d", i), []byte("x"), nil, false)
+		require.NoError(t, err)
+	}
+	requireClean(t, v)
+	require.NoError(t, v.Close())
+}
+
 func TestSysboot(t *testing.T) {
 	_, v := newTestVolume(t, 8000)
 	data := bytes.Repeat([]byte{0x4e, 0x71}, 5120)

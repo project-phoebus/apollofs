@@ -69,8 +69,17 @@ const DefaultNodeID = 0x12345
 
 func (v *Volume) clockh() uint32 { return util.TimestampToApolloEpoch(v.Now()) }
 
-// NewUID returns a fresh object UID.
-func (v *Volume) NewUID() uid.UID { return v.uidGen.Next() }
+// NewUID returns a fresh object UID.  Successive runs of this tool start
+// their generators at nearly the same clock value, so a candidate that is
+// already indexed in the VTOC is skipped.
+func (v *Volume) NewUID() uid.UID {
+	for {
+		u := v.uidGen.Next()
+		if _, err := v.VTOC.GetIndexForUID(u); err != nil {
+			return u
+		}
+	}
+}
 
 // Close flushes the BAT and labels (when writable) and closes the image.
 func (v *Volume) Close() error {
