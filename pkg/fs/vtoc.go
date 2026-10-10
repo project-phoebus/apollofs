@@ -46,9 +46,14 @@ type VTOCBlockSR9 struct {
 	Entries        [5]VTOCESR9
 }
 
+// VTOCBlock is a new-format VTOCE block (vtoc_$vtoce_block_t, 0x3F8 bytes
+// in domain_os/vtoc/vtoc_internal.h): the partition's chain of blocks with
+// free entries at +0 and the in-use count BAT_$ALLOC_VTOCE maintains at +4
+// (0xE3B09C addq.w #0x1,(0x4,A0)).
 type VTOCBlock struct {
-	Padding        uint32 // not sure what this is, but VTOCE_$READ uses 8 bytes to offset to the entries instead of 4
-	NextBlockDAddr DAddr
+	NextBlockDAddr DAddr  // 0x00 next block with free entries (0 = end)
+	EntryCount     uint16 // 0x04 entries in use (0..3)
+	Reserved06     uint16 // 0x06
 	Entries        [3]VTOCE
 }
 
@@ -230,7 +235,7 @@ func (b VTOCBucketBlock) Print() {
 
 func (b VTOCBlock) Print() {
 	fmt.Println("VTOCBlock:")
-	fmt.Println(" NextBlockDAddr:", b.NextBlockDAddr)
+	fmt.Println(" NextBlockDAddr:", b.NextBlockDAddr, "EntryCount:", b.EntryCount)
 	for i, e := range b.Entries {
 		fmt.Printf(" VTOCE %d:\n", i)
 		e.Print()

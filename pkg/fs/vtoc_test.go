@@ -49,8 +49,8 @@ func TestVTOCBlockLayout(t *testing.T) {
 
 	var sr10 VTOCBlock
 	requireDiskSize(t, 0x3F8, sr10, unsafe.Sizeof(sr10))
-	require.Equal(t, 0x00, int(unsafe.Offsetof(sr10.Padding)))
-	require.Equal(t, 0x04, int(unsafe.Offsetof(sr10.NextBlockDAddr)))
+	require.Equal(t, 0x00, int(unsafe.Offsetof(sr10.NextBlockDAddr)))
+	require.Equal(t, 0x04, int(unsafe.Offsetof(sr10.EntryCount)))
 	require.Equal(t, 0x08, int(unsafe.Offsetof(sr10.Entries)))
 }
 
