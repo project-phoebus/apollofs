@@ -74,6 +74,47 @@ Regenerate the script:
         --install-root ~/src/domainos-archeology/sr10.2-install \
         --links scripts/sr10.2_links.tsv --out scripts/build_sr10.2_dn300.sh
 
+## First boot: the registry (scripts/first_boot_sr10.2_dn300.sh)
+
+The build is two stages: build_sr10.2_dn300.sh writes the volume, then
+first_boot_sr10.2_dn300.sh boots it once under MAME (the original SR10.2
+kernel, through the kernel repo's domain_os/tools/mame_boot_direct.py) and
+types, at the Phase II `)` prompt, what an administrator of a new SR10.2
+network types on its first node.  The SR10.2 tapes carry no registry; it is
+made on the node:
+
+- `sh` starts the single-process shell, which asks to log in.  With no
+  registry the only login is `user.none.none` with an empty password
+  (SR10.1 changes, 5.2.5 case 3: no server and no /sys/registry/rgy_local).
+  Phase II's own `LO` loads a program without the global libraries, so it
+  cannot run rgy_create.
+- `/install/tools/rgy_create` (rgy_create(8); a boot-cartridge file the
+  build installs) writes the master registry, /sys/registry/rgy_data/{acct,
+  group, org, person, replicas, rgy, rgy_state, unix, update_log}.  Every
+  reserved account (root, user, admin, daemon, ...) gets the password
+  `-apollo-` (crypt w0UuY0sQV7sAI).
+- `crf /etc/daemons/llbd`, `glbd`, `rgyd`: the stub files /etc/rc tests
+  (`node_data/etc/daemons/README; rgyd and glbd require llbd).
+- `/etc/server /etc/ncs/llbd`, then `/etc/ncs/glbd -create -first` creates
+  the first GLB replica (`node_data/glb.e, glb.p; its log is
+  `node_data/system_logs/glb_log).  glbd then serves in the foreground (run
+  with `&` it dies at once), so the script quits it with ^C after ~40 s,
+  leaves the shell with ^D and types Phase II's `shut`, which flushes and
+  dismounts the volume ("Shutdown successful"); without it the image is
+  left inconsistent.
+- From then on `go` starts llbd, glbd and rgyd from /etc/rc ("Starting
+  standard daemons: llbd glbd rgyd.").  At the DM `login:` prompt root /
+  -apollo- is accepted (the DM then reports `user_data/startup_dm.19l` not
+  found and opens the first pad) and a wrong password is refused.  Under
+  MAME the kernel then crashes in the display interrupt (0013001D "invalid
+  interrupt routine state", SMD_$DISP1_INT's BLT state 6, PC E26FD6): an
+  emulation problem of the DN300 display, not of the volume.
+- `apollofs check` on the result reports only /sys/node_data/systmp/
+  global_rws blocks with zero headers (allocated, never written).
+
+Typing goes through the harness's `--type-inject`: MAME's dn300 keyboard
+sends 7 data bits + even parity, which the kernel reads as 8 bits, so most
+characters (space, n, y, ...) cannot be typed with key presses.
+
 Not reproduced: extended ACL records (three objects on the boot tape),
-the registry (rgy_create builds it on a running node), node-specific
-answers of install++ (ov.* templates).
+node-specific answers of install++ (ov.* templates).
