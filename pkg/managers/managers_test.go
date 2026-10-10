@@ -2,10 +2,12 @@ package managers
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"math/rand"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -254,7 +256,8 @@ func TestHashUIDKinds(t *testing.T) {
 // 2,000 long names need a three-level directory B-tree; list and check
 // must agree.
 func TestHugeDirectory(t *testing.T) {
-	path, v := newTestVolume(t, 20000)
+	path, v := newTestVolume(t, 8000)
+	nBkt := v.LV.Label.VTOCHeader.VTOCBlocksUsed
 	_, err := v.Names.Mkdir("/d", nil, nil)
 	require.NoError(t, err)
 	for i := 0; i < 2000; i++ {
@@ -263,6 +266,8 @@ func TestHugeDirectory(t *testing.T) {
 	}
 	r := requireClean(t, v)
 	require.Equal(t, 2004, r.Objects) // "/", "//", /d, 2000 files, paging file
+	// 22 bucket blocks hold 87 x 20 slots: some chains overflowed
+	require.Greater(t, v.LV.Label.VTOCHeader.VTOCBlocksUsed, nBkt)
 	v = reopen(t, path, v)
 	defer v.Close()
 	u, err := v.Names.Resolve("/d")
@@ -352,4 +357,38 @@ func TestRemoveAndReplaceFreeExactly(t *testing.T) {
 	}
 	require.Equal(t, int32(len(after)), v.LV.Label.BATHeader.NumFreeBlocks)
 	requireClean(t, v)
+}
+
+// check finds a UID whose bucket slot sits off its hash chain (the kernel
+// could not look it up).
+func TestCheckCatchesMisplacedBucketSlot(t *testing.T) {
+	_, v := newTestVolume(t, 8000)
+	defer v.Close()
+	u, err := v.Names.WriteFile("/f", []byte("x"), nil, false)
+	require.NoError(t, err)
+	x, err := v.VTOC.GetIndexForUID(u)
+	require.NoError(t, err)
+	blk, bkt, err := v.VTOC.bucketFor(u)
+	require.NoError(t, err)
+	// drop the slot from its chain
+	require.NoError(t, v.VTOC.walkBuckets(u, func(b *fs.Block, s bucketSlot, su uid.UID, sx fs.VTOCX) (bool, error) {
+		if su == u && sx == x {
+			o := slotOff(s.bkt, s.slot)
+			copy(b.Data[o:o+12], make([]byte, 12))
+			return true, v.LV.WriteBlock(s.block, b)
+		}
+		return false, nil
+	}))
+	// and park it in the last slot of another bucket
+	other := (bkt + 1) % bucketsPerBlock
+	b, err := v.LV.ReadBlock(blk)
+	require.NoError(t, err)
+	o := slotOff(other, bucketSlots-1)
+	binary.BigEndian.PutUint32(b.Data[o:], u.Hi)
+	binary.BigEndian.PutUint32(b.Data[o+4:], u.Lo)
+	binary.BigEndian.PutUint32(b.Data[o+8:], uint32(x))
+	require.NoError(t, v.LV.WriteBlock(blk, b))
+	r, err := v.Check()
+	require.NoError(t, err)
+	require.Contains(t, strings.Join(r.Problems, "\n"), "is not on its hash bucket's chain")
 }

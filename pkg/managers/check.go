@@ -85,6 +85,20 @@ func (v *Volume) Check() (*CheckReport, error) {
 			}
 		}
 	}
+	// every indexed UID must be reachable from the bucket its hash names
+	// (vtoc_$hash_uid), through the overflow chain, as VTOC_$LOOKUP walks it
+	var hashed []uid.UID
+	for u := range slots {
+		hashed = append(hashed, u)
+	}
+	sort.Slice(hashed, func(i, j int) bool {
+		return hashed[i].Hi < hashed[j].Hi || hashed[i].Hi == hashed[j].Hi && hashed[i].Lo < hashed[j].Lo
+	})
+	for _, u := range hashed {
+		if x, err := v.VTOC.GetIndexForUID(u); err != nil || x != slots[u] {
+			r.problem("UID %v (VTOCX %v) is not on its hash bucket's chain", u, slots[u])
+		}
+	}
 	for i := 0; i < int(l.NumPartitions); i++ {
 		d := fs.DAddr(l.Partitions[i].StatusVTOCE & 0xFFFFFF)
 		chained := map[fs.DAddr]bool{}
