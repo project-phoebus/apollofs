@@ -1,0 +1,96 @@
+# path	link text	source
+# Soft links the SR10.2 aegis_small install creates that are not on the release tapes.
+# 'boot-tape': a link record on the SR10.2 boot cartridge (017286-001), the tree a
+#   tape-equipped node restores onto a fresh disk; 'ri-db+ref': the link text appears in
+#   the release database install/ri.apollo.os.v.10.2/ri.apollo.os.v.10.2 for that name and
+#   an SR10.3 installed volume has the identical link; 'subcomp': a zero-size subcomponent
+#   of the aa.aegis_small template (bin_link, base_dev, base_tmp) whose text is in the ri db.
+/bin	$(SYSTYPE)/bin	subcomp /bin_link
+/dev	`node_data/dev	subcomp /base_dev
+/tmp	`node_data/tmp	subcomp /base_tmp
+/sys/dm/fonts/std	f7x13	boot-tape
+/sys/dm/fonts/std.1280bw	f5x9	boot-tape
+/sys/dm/fonts/std.1280color	f5x9	boot-tape
+/sys/dm/fonts/std.19l	f5x9	boot-tape
+/sys/dm/fonts/std.color	f7x13.b	boot-tape
+/sys/dm/startup_login	startup_login.19l	boot-tape
+/sys/dm/startup_login.1280bw	startup_login.19l	boot-tape
+/sys/dm/startup_login.1280color	startup_login.19l	boot-tape
+/sys/dm/startup_login.color	startup_login.19l	boot-tape
+/sys/node_data/dev/sio.spm	sio1	boot-tape
+/sys/node_data/etc/environ	environ.aegis	boot-tape
+/sys/sysdev/sio.spm	sio1	boot-tape
+/com/bldt	../usr/apollo/bin/bldt	boot-tape
+/com/lcnode	../etc/lcnode	boot-tape
+/com/xdmc	../usr/apollo/bin/xdmc	boot-tape
+/etc/daemons	`node_data/etc/daemons	boot-tape
+/etc/environ	`node_data/etc/environ	boot-tape
+/etc/rc	`node_data/etc/rc	boot-tape
+/etc/rc.local	`node_data/etc/rc.local	boot-tape
+/etc/rc.user	`node_data/etc/rc.user	boot-tape
+/etc/sys.conf	`node_data/etc/sys.conf	boot-tape
+/etc/ttys	`node_data/etc/ttys	boot-tape
+/install/tools/dsp_media_install	media_install	boot-tape
+/install/tools/media_install_opt	media_install	boot-tape
+/install/tools/media_install_opt_sr9	media_install	boot-tape
+/dev/sio.spm	sio1	boot-tape
+/com/chuvol	../etc/chuvol	ri-db+ref
+/com/color7_ee_write	../etc/color7_ee_write	ri-db+ref
+/com/cpboot	../etc/cpboot	ri-db+ref
+/com/cpscr	../usr/apollo/bin/cpscr	ri-db+ref
+/com/crddf	../usr/apollo/bin/crddf	ri-db+ref
+/com/crp	../usr/apollo/bin/crp	ri-db+ref
+/com/crpad	../usr/apollo/bin/crpad	ri-db+ref
+/com/crty	../usr/apollo/bin/crty	ri-db+ref
+/com/crtyobj	../usr/apollo/bin/crtyobj	ri-db+ref
+/com/ctob	../etc/ctob	ri-db+ref
+/com/dial_server_request	../usr/apollo/bin/dial_server_request	ri-db+ref
+/com/dlty	../usr/apollo/bin/dlty	ri-db+ref
+/com/dspst	../usr/apollo/bin/dspst	ri-db+ref
+/com/edfont	../usr/apollo/bin/edfont	ri-db+ref
+/com/emt	../usr/apollo/bin/emt	ri-db+ref
+/com/esa	../usr/apollo/bin/esa	ri-db+ref
+/com/find_orphans	../etc/find_orphans	ri-db+ref
+/com/hpc	../usr/apollo/bin/hpc	ri-db+ref
+/com/intm	../usr/apollo/bin/intm	ri-db+ref
+/com/inty	../usr/apollo/bin/inty	ri-db+ref
+/com/invol	../etc/invol	ri-db+ref
+/com/las	../usr/apollo/bin/las	ri-db+ref
+/com/lcm	../usr/apollo/bin/lcm	ri-db+ref
+/com/lcnet	../etc/lcnet	ri-db+ref
+/com/llib	../usr/apollo/bin/llib	ri-db+ref
+/com/llkob	../usr/apollo/bin/llkob	ri-db+ref
+/com/lty	../usr/apollo/bin/lty	ri-db+ref
+/com/netmain	../etc/netmain	ri-db+ref
+/com/probenet	../etc/probenet	ri-db+ref
+/com/rbak	../usr/apollo/bin/rbak	ri-db+ref
+/com/rtchk	../etc/rtchk	ri-db+ref
+/com/salacl	../etc/salacl	ri-db+ref
+/com/salvol	../etc/salvol	ri-db+ref
+/com/scrch	../usr/apollo/bin/scrattr	ri-db+ref
+/com/scrto	../usr/apollo/bin/scrto	ri-db+ref
+/com/shutspm	../etc/shutspm	ri-db+ref
+/com/stcode	../usr/apollo/bin/stcode	ri-db+ref
+/com/tb	../usr/apollo/bin/tb	ri-db+ref
+/com/tpm	../usr/apollo/bin/tpm	ri-db+ref
+/com/trty	../usr/apollo/bin/trty	ri-db+ref
+/com/tz	../usr/apollo/bin/tz	ri-db+ref
+/com/vsize	../usr/apollo/bin/vsize	ri-db+ref
+/com/vt100	../usr/apollo/bin/vt100	ri-db+ref
+/etc/X0.hosts	`node_data/etc/X0.hosts	ri-db+ref
+/etc/fstab	`node_data/etc/fstab	ri-db+ref
+/etc/inetd.conf	`node_data/etc/inetd.conf	ri-db+ref
+/etc/login_log.conf	`node_data/etc/login_log.conf	ri-db+ref
+/etc/ncs/lbcm_cache_dir	`node_data/etc/ncs/lbcm_cache_dir	ri-db+ref
+/etc/stackd.conf	`node_data/etc/stackd.conf	ri-db+ref
+/etc/syslog.conf	`node_data/etc/syslog.conf	ri-db+ref
+/etc/syslog.pid	`node_data/etc/syslog.pid	ri-db+ref
+/etc/utmp	`node_data/etc/utmp	ri-db+ref
+/etc/wtmp	`node_data/system_logs/wtmp	ri-db+ref
+/lib/cpp	../usr/lib/cpp	ri-db+ref
+/sys/dialog/dp_tf2	../dm/fonts/helvetica10	ri-db+ref
+/sys/dialog/dp_tf3	../dm/fonts/helvetica12	ri-db+ref
+/sys/dialog/dp_tf4	../dm/fonts/helvetica14	ri-db+ref
+/sys/dm/color_map	`node_data/etc/dm_display/color_map	ri-db+ref
+/sys/net/netmain_srvr	../../etc/netmain_srvr	ri-db+ref
+/usr/apollo/bin/dde	../../../sys/debug/dde	ri-db+ref

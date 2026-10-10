@@ -16,15 +16,19 @@ Usage:
   apollofs [command]
 
 Available Commands:
+  check       Check the volume's VTOC, file maps, directories and BAT for consistency (read-only)
   completion  Generate the autocompletion script for the specified shell
   copyin      Copy a file from the host to the disk image
   copyout     Copy a file from the disk image to the host
-  cpboot      Make the disk image bootable (by copying sysboot)
+  cpboot      Make the disk image bootable (copy sysboot to /sysboot, LV blocks 1-10)
+  crl         Create a soft link (like /com/crl): path names the link, text is what it resolves to
+  ctindex     List the objects on rbak cartridge-tape images with their tape file, type and VTOCE attributes
   help        Help about any command
   info        Dump information about filesystem structures
-  invol       Initialize a disk image
+  invol       Initialize a disk image (PV/LV labels, BAT, VTOC, / and //)
   list        List files/directories in the disk image (similar to 'ls' in the host)
   mkdir       Create a directory in the disk image (similar to 'mkdir' in the host)
+  rm          Delete a file, a link or an empty directory
 
 Flags:
   -d, --debug              Enable debug output
@@ -32,6 +36,18 @@ Flags:
   -h, --help               help for apollofs
 
 Use "apollofs [command] --help" for more information about a command.
+```
+
+Building a volume from scratch (see NOTES.md and scripts/build_sr10.2_dn300.sh):
+
+```
+% apollofs -i new.awd invol -t 105 --name DN300          # PRIAM 7050, with a 1 MB OS paging file
+% apollofs -i new.awd cpboot sysboot
+% apollofs -i new.awd mkdir /lib
+% apollofs -i new.awd copyin -t coff libc /lib/libc       # or -a <attribute image from ctindex>
+% apollofs -i new.awd copyin --replace -t coff libc /lib/libc
+% apollofs -i new.awd crl /tmp '`node_data/tmp'
+% apollofs -i new.awd check
 ```
 
 ### dumping labels (physical and logical)
