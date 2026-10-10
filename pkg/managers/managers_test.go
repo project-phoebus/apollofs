@@ -279,3 +279,77 @@ func TestHugeDirectory(t *testing.T) {
 	require.Equal(t, []byte{byte(1234 % 256)}, got)
 	requireClean(t, v)
 }
+
+func freeSet(v *Volume) map[fs.DAddr]bool {
+	out := map[fs.DAddr]bool{}
+	h := v.LV.Label.BATHeader
+	for d := h.BlockNumOfFirstBATBit; d < h.BlockNumOfFirstBATBit+fs.DAddr(h.NumBlocksRepresented); d++ {
+		if v.BAT.IsFree(d) {
+			out[d] = true
+		}
+	}
+	return out
+}
+
+// rm and --replace give back exactly the blocks the object owned: data
+// pages, level-1/level-2 file-map blocks, and pages a kernel left past
+// CurrentLength (VTOCE_$TRUNCATE frees the whole map).
+func TestRemoveAndReplaceFreeExactly(t *testing.T) {
+	_, v := newTestVolume(t, 8000)
+	defer v.Close()
+	_, err := v.Names.Mkdir("/d", nil, nil)
+	require.NoError(t, err)
+	_, err = v.Names.WriteFile("/d/keep", []byte("k"), nil, false) // VTOCE block with room stays put
+	require.NoError(t, err)
+	big := bytes.Repeat([]byte{0xA5}, 300*1024) // 300 pages: direct, level 1, level 2
+	_, err = v.Names.WriteFile("/d/big", big, nil, false)
+	require.NoError(t, err)
+	e, err := v.Names.Stat("/d/big")
+	require.NoError(t, err)
+	m, fmb, err := v.VTOC.FileMap(e)
+	require.NoError(t, err)
+	owned := map[fs.DAddr]bool{}
+	for _, d := range append(m, fmb...) {
+		owned[d] = true
+	}
+	require.Len(t, owned, 300+3)
+	require.Equal(t, uint32(303), e.Header.BlocksUsed)
+
+	// replace with one page: 302 blocks come back, one is reused
+	before := freeSet(v)
+	_, err = v.Names.WriteFile("/d/big", []byte("small"), nil, true)
+	require.NoError(t, err)
+	requireClean(t, v)
+	after := freeSet(v)
+	require.Equal(t, len(before)+302, len(after))
+	for d := range after {
+		require.True(t, before[d] || owned[d], "block %d freed but not owned", d)
+	}
+
+	// a kernel-truncated object: length 1 page, 40 pages still mapped
+	_, err = v.Names.WriteFile("/d/big", bytes.Repeat([]byte{1}, 40*1024), nil, true)
+	require.NoError(t, err)
+	x, err := v.VTOC.GetIndexForUID(e.Header.ObjectUID)
+	require.NoError(t, err)
+	e = mustGet(t, v, x)
+	m, fmb, err = v.VTOC.FileMap(e)
+	require.NoError(t, err)
+	owned = map[fs.DAddr]bool{}
+	for _, d := range append(m, fmb...) {
+		owned[d] = true
+	}
+	require.Len(t, owned, 41)
+	e.Header.CurrentLength = 100
+	require.NoError(t, v.VTOC.PutEntry(x, e))
+	requireClean(t, v)
+
+	before = freeSet(v)
+	require.NoError(t, v.Names.Remove("/d/big"))
+	after = freeSet(v)
+	require.Equal(t, len(before)+41, len(after))
+	for d := range owned {
+		require.True(t, after[d], "block %d still allocated", d)
+	}
+	require.Equal(t, int32(len(after)), v.LV.Label.BATHeader.NumFreeBlocks)
+	requireClean(t, v)
+}

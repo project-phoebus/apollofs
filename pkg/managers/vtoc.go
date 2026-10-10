@@ -416,51 +416,70 @@ func (vm VTOCManager) GetFMBlocks(e *fs.VTOCE) ([]fs.DAddr, error) {
 }
 
 // FileMap returns one daddr per logical page (0 for a hole, flag bit 31
-// masked off) and the daddrs of the file-map blocks themselves.
+// masked off) and the daddrs of the file-map blocks themselves.  The map is
+// walked whole, the way VTOCE_$TRUNCATE frees it, so blocks past
+// CurrentLength (which the kernel can leave behind) are returned too; the
+// page list covers at least CurrentLength.
 func (vm VTOCManager) FileMap(e *fs.VTOCE) ([]fs.DAddr, []fs.DAddr, error) {
 	pages := int((e.Header.CurrentLength + 1023) / 1024)
 	var out, fmBlocks []fs.DAddr
-	for _, d := range e.FileMap0 {
-		out = append(out, d&0x7FFFFFFF)
+	set := func(page int, d fs.DAddr) {
+		for len(out) <= page {
+			out = append(out, 0)
+		}
+		out[page] = d
 	}
-	var walk func(level int, d fs.DAddr) error
-	walk = func(level int, d fs.DAddr) error {
+	for i, d := range e.FileMap0 {
+		if d &= 0x7FFFFFFF; d != 0 {
+			set(i, d)
+		}
+	}
+	seen := map[fs.DAddr]bool{}
+	var walk func(level int, d fs.DAddr, first int) error
+	walk = func(level int, d fs.DAddr, first int) error {
 		d &= 0x7FFFFFFF
 		if d == 0 {
-			n := 256
-			for i := 1; i < level; i++ {
-				n *= 256
-			}
-			out = append(out, make([]fs.DAddr, n)...)
 			return nil
 		}
+		if seen[d] {
+			return fmt.Errorf("file-map block %d referenced twice", d)
+		}
+		seen[d] = true
 		fmBlocks = append(fmBlocks, d)
 		b, err := vm.lvol.ReadBlock(d)
 		if err != nil {
 			return err
 		}
+		span := 1
+		for i := 1; i < level; i++ {
+			span *= 256
+		}
 		for i := 0; i < 256; i++ {
-			c := fs.DAddr(binary.BigEndian.Uint32(b.Data[i*4:]))
+			c := fs.DAddr(binary.BigEndian.Uint32(b.Data[i*4:])) & 0x7FFFFFFF
+			if c == 0 {
+				continue
+			}
 			if level == 1 {
-				out = append(out, c&0x7FFFFFFF)
-			} else if len(out) < pages+256 {
-				if err := walk(level-1, c); err != nil {
-					return err
-				}
+				set(first+i, c)
+			} else if err := walk(level-1, c, first+i*span); err != nil {
+				return err
 			}
 		}
 		return nil
 	}
+	first := 32
 	for level, d := range []fs.DAddr{e.FileMap1Ptr, e.FileMap2Ptr, e.FileMap3Ptr} {
-		if d == 0 || len(out) >= pages {
-			continue
-		}
-		if err := walk(level+1, d); err != nil {
+		if err := walk(level+1, d, first); err != nil {
 			return nil, nil, err
 		}
+		span := 256
+		for i := 0; i < level; i++ {
+			span *= 256
+		}
+		first += span
 	}
-	if len(out) > pages {
-		out = out[:pages]
+	for len(out) < pages {
+		out = append(out, 0)
 	}
 	return out, fmBlocks, nil
 }
