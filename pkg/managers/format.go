@@ -346,6 +346,10 @@ func (v *Volume) InstallSysboot(data []byte, attrs *Attrs) error {
 		e.Header.ObjectUID, e.Header.DirectoryUID = u, dirp
 		e.Header.Flags |= fs.VTOCEFlagInUse
 	}
+	// whatever the source file's type was (the SR10.2 tape records sysboot
+	// as nil), the installed boot file is a sysboot object, as on an
+	// SR10.3 volume
+	e.Header.ObjectTypeDefUID = uid.UIDsysboot
 	now := v.clockh()
 	pages := (len(data) + pageBytes - 1) / pageBytes
 	for i := 0; i < pages; i++ {

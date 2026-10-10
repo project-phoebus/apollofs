@@ -199,7 +199,11 @@ func TestSysboot(t *testing.T) {
 		require.Equal(t, fs.DAddr(1+i), e.FileMap0[i])
 	}
 	require.Equal(t, e.Header.ObjectUID, mustGet(t, v, v.LV.Label.VTOCHeader.SysbootVTOCX).Header.ObjectUID)
-	require.NoError(t, v.InstallSysboot(data[:4000], nil))
+	a := DefaultFileAttrs // type nil, as the SR10.2 tape has it
+	require.NoError(t, v.InstallSysboot(data[:4000], &a))
+	e, err = v.Names.Stat("/sysboot")
+	require.NoError(t, err)
+	require.Equal(t, uid.UIDsysboot, e.Header.ObjectTypeDefUID)
 	requireClean(t, v)
 	require.NoError(t, v.Close())
 }
