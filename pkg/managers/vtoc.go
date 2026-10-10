@@ -56,10 +56,10 @@ func (vm *VTOCManager) hashUID(u uid.UID) uint32 {
 
 	switch {
 	case vtocVersion < 2:
-		// below translitered from domain_os decompiled UID_$HASH
+		// UID_$HASH (domain_os/uid/hash.c): fold hi^lo to 16 bits, then
+		// divu.w by the table size; the remainder is the hash.
 		tmp := u.Hi ^ u.Lo
-		tmp = tmp ^ (tmp >> 16)
-		return (tmp % vtocSize) & 0xFFFF
+		return uint32(uint16(tmp>>16)^uint16(tmp)) % vtocSize
 	case vtocVersion == 2:
 		x := u.Hi * 2
 		if int32(u.Lo) < 0 {

@@ -233,3 +233,20 @@ func TestReferenceVolume(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, d.Lookup("sau2"))
 }
+
+// TestHashUIDKinds checks every hash type against vtoc_$hash_uid /
+// UID_$HASH (domain_os/vtoc/uid_cache.c, uid/hash.c): each folds to 16 bits
+// before the divu.w.
+func TestHashUIDKinds(t *testing.T) {
+	lv := &fs.LogicalVolume{}
+	vm := NewVTOCManager(lv, nil)
+	lv.Label.VTOCHeader.VTOCSizeInBlocks = 401
+	u := uid.UID{Hi: 0x12345678, Lo: 0x9ABCDEF0}
+	fold := func(x uint32) uint32 { return (x>>16 ^ x&0xFFFF) & 0xFFFF }
+	lv.Label.VTOCHeader.Version = 0
+	require.Equal(t, fold(u.Hi^u.Lo)%401, vm.hashUID(u))
+	lv.Label.VTOCHeader.Version = 2
+	require.Equal(t, fold(u.Hi*2+1)%401, vm.hashUID(u))
+	lv.Label.VTOCHeader.Version = 3
+	require.Equal(t, fold(u.Hi)%401, vm.hashUID(u))
+}
