@@ -33,7 +33,11 @@ import shlex
 import sys
 
 RI = 'install/ri.apollo.os.v.10.2/'
-BOOT_EXTRA_FILES = ['sys/types']   # boot-cartridge files a disked node needs that no ri tape file has
+# Boot-cartridge files a disked node needs that no ri tape file has: the
+# type-name table, and the registry-creation tool, which rgy_create(8) runs
+# as /install/tools/rgy_create (scripts/first_boot_sr10.2_dn300.sh runs it
+# on the node's first boot; the tapes carry no registry).
+BOOT_EXTRA_FILES = ['sys/types', 'install/tools/rgy_create']
 
 # Emulator workarounds.  MAME's DN300 answers the PEB (floating-point board)
 # probe but does not emulate its writable control store, so PEB_$LOAD_WCS
@@ -135,6 +139,8 @@ def main():
             continue
         p, text, src = line.rstrip('\n').split('\t')
         parent = p.rsplit('/', 1)[0] or '/'
+        if p.startswith('/install/'):
+            continue  # the boot cartridge's install-tool links: of /install/tools only rgy_create goes on
         if (parent == '/' or parent in dirs) and p not in dests and p not in dirs:
             links.append((p, text, src))
 
@@ -147,7 +153,7 @@ def main():
     w('# Builds a native SR10.2 disk for a DN300 (sau2) from the SR10.2 release:')
     w('#   template   install/templates/apollo/os.v.10.2/%s (%d subcomponents, %d tape files)' % (args.template, len(selected), len(tapefiles)))
     w('#   objects    the selected tape files of the std cartridges, attributes from their tape records')
-    w('#   + /sys/types and the soft links in scripts/sr10.2_links.tsv (disked-node config, see NOTES)')
+    w('#   + /sys/types, /install/tools/rgy_create and the soft links in scripts/sr10.2_links.tsv (boot cartridge, see NOTES)')
     for (qq, aa), paths in sorted(ANSWER_SKIPS.items()):
         if answers.get(qq) == aa:
             w('#   %s answers %s=%s: not installed: %s' % (args.template.replace('aa.', 'ov.', 1), qq, aa, ' '.join(paths)))
