@@ -33,6 +33,8 @@
 #   ~/src/domainos-archeology/source/domain_os) for the harness and MAME; the
 #   SR10.2 kernel and link map come from SR102 (default
 #   ~/src/domainos-archeology/sr10.2-install) and MAP.  Takes ~8 minutes.
+#   Types with plain key presses (needs the patched DN300 keyboard, kernel-repo
+#   bead source-jgxw); TYPE_INJECT=1 falls back to the harness's --type-inject.
 set -euo pipefail
 IMG="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
 WORK="${2:-$(dirname "$IMG")/first_boot}"
@@ -46,7 +48,7 @@ cd "$DOMAIN_OS"
 DOS_ROM_FRAMES=100000 python3 tools/mame_boot_direct.py \
     --image "$SR102/install/ri.apollo.os.v.10.2/sau2/domain_os" --map "$MAP" \
     --disk "$IMG" --work-dir "$WORK" --clean-volume --last-valid 0x4F900000 \
-    --frames 30000 --stuck-frames 3000 --type-inject --finish-on 'Shutdown successful' \
+    --frames 30000 --stuck-frames 3000 ${TYPE_INJECT:+--type-inject} --finish-on 'Shutdown successful' \
     --expect ')'          --type 'sh\r' \
     --expect 'login: '    --type 'user.none.none\r' \
     --expect 'Password: ' --type '\r' \

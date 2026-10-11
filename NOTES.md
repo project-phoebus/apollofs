@@ -112,9 +112,12 @@ made on the node:
 - `apollofs check` on the result reports only /sys/node_data/systmp/
   global_rws blocks with zero headers (allocated, never written).
 
-Typing goes through the harness's `--type-inject`: MAME's dn300 keyboard
-sends 7 data bits + even parity, which the kernel reads as 8 bits, so most
-characters (space, n, y, ...) cannot be typed with key presses.
+Typing uses plain key presses through the harness (Shift and Ctrl
+included).  This needs the owner's patched DN300 keyboard in MAME (kernel-repo
+bead source-jgxw: 8E1 framing and a code table whose codes are what SR10.2's
+SMD_$KTT translates to each legend).  With an unpatched emulator, run with
+TYPE_INJECT=1 to use the harness's --type-inject fallback.  At the default
+typing rate a busy DM pad drops keys; DOS_KEY_HOLD=4 DOS_KEY_GAP=16 is reliable.
 
 Not reproduced: extended ACL records (three objects on the boot tape),
 node-specific answers of install++ (ov.* templates).
