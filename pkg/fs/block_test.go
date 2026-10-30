@@ -25,5 +25,7 @@ func TestPVLabelLayout(t *testing.T) {
 	require.Equal(t, 0xBC, int(unsafe.Offsetof(l.Interleave)))
 	require.Equal(t, 0xBE, int(unsafe.Offsetof(l.SectorsPerBlock)))
 	require.Equal(t, 0xC4, int(unsafe.Offsetof(l.Revision)))
-	requireDiskSize(t, 0xE4, l, unsafe.Sizeof(l))
+	require.Equal(t, 0xF6, int(unsafe.Offsetof(l.BadspotLen)))
+	require.Equal(t, 0xF8, int(unsafe.Offsetof(l.DiagLen)))
+	requireDiskSize(t, 0xFC, l, unsafe.Sizeof(l))
 }

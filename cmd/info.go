@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/hex"
 	"fmt"
 	"strconv"
 
@@ -79,6 +80,15 @@ func block(diskImage string, physDAddr string) error {
 		return err
 	}
 
+	if !pvol.Headers {
+		// nothing to print or to pick a decoder by
+		fmt.Println("(no block header: a SCSI volume)")
+		if blockContents {
+			fmt.Println("Block data:")
+			fmt.Println(hex.Dump(block.Data[:]))
+		}
+		return pvol.Unmount()
+	}
 	block.Print(blockContents, raw)
 
 	return pvol.Unmount()

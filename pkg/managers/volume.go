@@ -48,7 +48,7 @@ func Open(path string, writable bool) (*Volume, error) {
 }
 
 func newVolume(pv *fs.PhysicalVolume, writable bool) *Volume {
-	v := &Volume{PV: pv, LV: pv.LV, Writable: writable, Now: time.Now}
+	v := &Volume{PV: pv, LV: pv.LV, Writable: writable, Now: util.Now}
 	v.BAT = NewBATManager(v.LV)
 	v.VTOC = NewVTOCManager(v.LV, v.BAT)
 	v.Files = NewFileManager(v)

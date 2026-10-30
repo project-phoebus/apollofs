@@ -42,6 +42,7 @@ Building a volume from scratch (see NOTES.md and scripts/build_sr10.2_dn300.sh):
 
 ```
 % apollofs -i new.awd invol -t 105 --name DN300          # PRIAM 7050, with a 1 MB OS paging file
+% apollofs -i new.hd invol --scsi 400/16/63 --name DN2500  # or a SCSI disk: no block headers
 % apollofs -i new.awd cpboot sysboot
 % apollofs -i new.awd mkdir /lib
 % apollofs -i new.awd copyin -t coff libc /lib/libc       # or -a <attribute image from ctindex>
@@ -49,6 +50,15 @@ Building a volume from scratch (see NOTES.md and scripts/build_sr10.2_dn300.sh):
 % apollofs -i new.awd crl /tmp '`node_data/tmp'
 % apollofs -i new.awd check
 ```
+
+Two image layouts exist, and every command opens either: disks whose
+controller keeps Apollo block headers (ANSI, SMD, ST-506, ESDI; `invol -t`
+with a drive type from `invol --list-dtypes`) are arrays of 1056-byte
+blocks, and SCSI disks (`invol --scsi cylinders/heads/sectors`, 512-byte
+sectors per track, drive type class 0x700) are arrays of 1024-byte blocks
+with no headers, block N at byte N x 1024 (a raw MAME `.hd` image).
+`info labels` says which one an image is.  Set `SOURCE_DATE_EPOCH` to make
+apollofs stamp a fixed time, for reproducible images.
 
 ### dumping labels (physical and logical)
 ```

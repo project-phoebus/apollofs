@@ -3,6 +3,7 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"os"
 	"strconv"
 
 	"github.com/spf13/cobra"
@@ -21,32 +22,48 @@ var (
 	involNodeName  string
 	involRevision  string
 	involPaging    int
+	involSCSI      string
 )
 
 func invol(diskImage string) error {
-	dtypeInt, err := strconv.ParseInt(dtype, 16, 64)
-	if err != nil {
-		return errors.New("driveType must be a hex string.  use --list-dtypes to see the list")
-	}
-	diskType, err := drives.GetDriveType(int16(dtypeInt))
-	if err != nil {
-		return fmt.Errorf("unknown driveType '%s'.  use --list-dtypes to see the list", dtype)
+	opt := managers.FormatOptions{PVName: involPVName, LVName: involLVName, NodeName: involNodeName,
+		Revision: involRevision, PagingFilePages: involPaging}
+	if involSCSI != "" {
+		d, err := drives.ParseSCSIDisk(involSCSI)
+		if err != nil {
+			return err
+		}
+		if g := drives.MAMEGuess(d.ImageBytes()); g != d {
+			fmt.Fprintf(os.Stderr, "note: MAME guesses %d/%d/%d for an image of this size, not %s\n",
+				g.Cylinders, g.Heads, g.SectorsPerTrack, involSCSI)
+		}
+		opt.SCSI = &d
+	} else {
+		dtypeInt, err := strconv.ParseInt(dtype, 16, 64)
+		if err != nil {
+			return errors.New("driveType must be a hex string.  use --list-dtypes to see the list")
+		}
+		opt.DriveType, err = drives.GetDriveType(int16(dtypeInt))
+		if err != nil {
+			return fmt.Errorf("unknown driveType '%s'.  use --list-dtypes to see the list", dtype)
+		}
 	}
 	nodeID, err := strconv.ParseUint(involNodeID, 16, 32)
 	if err != nil {
 		return fmt.Errorf("bad node id %q", involNodeID)
 	}
-	v, err := managers.Format(diskImage, managers.FormatOptions{
-		DriveType: diskType, PVName: involPVName, LVName: involLVName,
-		NodeID: uint32(nodeID), NodeName: involNodeName, Revision: involRevision,
-		PagingFilePages: involPaging,
-	})
+	opt.NodeID = uint32(nodeID)
+	v, err := managers.Format(diskImage, opt)
 	if err != nil {
 		return err
 	}
 	l := v.LV.Label
+	name := opt.DriveType.Name
+	if opt.SCSI != nil {
+		name = fmt.Sprintf("SCSI %s (dtype 0x%03X, no block headers)", involSCSI, uint16(v.PV.Label.DriveType))
+	}
 	fmt.Printf("%s: %s, %d blocks; BAT at %d (%d blocks free), %d VTOC hash buckets at %d, %d BAT partitions\n",
-		diskImage, diskType.Name, diskType.TotalBlocks(), l.BATHeader.FirstBATBlockDAddr, l.BATHeader.NumFreeBlocks,
+		diskImage, name, v.PV.Label.TotalBlocksInVolume, l.BATHeader.FirstBATBlockDAddr, l.BATHeader.NumFreeBlocks,
 		l.VTOCHeader.VTOCSizeInBlocks, v.LV.VTOCMap[0].FirstBlockDAddr, l.NumPartitions)
 	if err := v.Close(); err != nil {
 		return err
@@ -69,6 +86,8 @@ func init() {
 	f.StringVar(&involNodeName, "node-name", "", "name \"//\" catalogs \"/\" under (default node_<id>)")
 	f.StringVar(&involRevision, "revision", "revision 10.2", "invol revision text in the PV label")
 	f.IntVar(&involPaging, "paging-file", managers.DefaultPagingFilePages, "OS paging file size in pages (0 = none)")
+	f.StringVar(&involSCSI, "scsi", "", "make a SCSI volume (no block headers) of a disk of cylinders/heads/sectors\n"+
+		"(512-byte sectors per track; the image is the whole disk; -t is not used)")
 }
 
 var involCommand = &cobra.Command{
@@ -80,6 +99,7 @@ var involCommand = &cobra.Command{
 				fmt.Printf("0x%03X: %-20s %4d cyl %2d heads %2d blk/trk = %d blocks\n", dt.DType, dt.Name,
 					dt.Cylinders, dt.Heads, dt.BlocksPerTrack, dt.TotalBlocks())
 			}
+			fmt.Println("0x7nn: SCSI (--scsi C/H/S): nn = the capacity in units of 10 MB")
 			return nil
 		}
 		return invol(diskImage)

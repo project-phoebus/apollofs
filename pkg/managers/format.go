@@ -14,7 +14,11 @@ import (
 
 // FormatOptions describes a new volume.
 type FormatOptions struct {
-	DriveType   drives.DriveType
+	DriveType drives.DriveType
+	// SCSI, when set, makes a SCSI volume of that disk instead: no block
+	// headers, and the PV label the SR10.2 invol writes for it (DriveType
+	// and TotalBlocks are not used).
+	SCSI        *drives.SCSIDisk
 	TotalBlocks int    // 0 = the drive's capacity (tests use small values)
 	PVName      string // PV label name (32 chars, blank padded)
 	LVName      string
@@ -55,7 +59,7 @@ func padName(s string) [32]byte {
 // with the BAT right behind it and the root directories after that.
 func Format(path string, opt FormatOptions) (*Volume, error) {
 	if opt.Now.IsZero() {
-		opt.Now = time.Now()
+		opt.Now = util.Now()
 	}
 	if opt.NodeID == 0 {
 		opt.NodeID = DefaultNodeID
@@ -71,6 +75,22 @@ func Format(path string, opt FormatOptions) (*Volume, error) {
 	if total == 0 {
 		total = int(dt.TotalBlocks())
 	}
+	headers := true
+	imageBytes := int64(total) * fs.BlockSize
+	var scsiBlocks int
+	if opt.SCSI != nil {
+		// The SR10.2 invol on a SCSI disk (see NOTES.md): the volume ends
+		// a badspot list and a diagnostic area before the size DINIT
+		// reports, which is the label's addr_end.
+		if err := opt.SCSI.Validate(); err != nil {
+			return nil, err
+		}
+		headers = false
+		dt = opt.SCSI.DriveType()
+		scsiBlocks = opt.SCSI.Blocks()
+		total = scsiBlocks - (3*opt.SCSI.BlocksPerCylinder() + 1)
+		imageBytes = opt.SCSI.ImageBytes()
+	}
 	bpc := int(dt.BlocksPerTrack) * int(dt.Heads)
 	if total < 2000 || bpc == 0 {
 		return nil, fmt.Errorf("volume too small (%d blocks)", total)
@@ -80,7 +100,7 @@ func Format(path string, opt FormatOptions) (*Volume, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := f.Truncate(int64(total) * fs.BlockSize); err != nil {
+	if err := f.Truncate(imageBytes); err != nil {
 		f.Close()
 		return nil, err
 	}
@@ -134,22 +154,41 @@ func Format(path string, opt FormatOptions) (*Volume, error) {
 		WordC0:              1,
 		RevisionLen:         uint16(len(opt.Revision)),
 	}
+	if opt.SCSI != nil {
+		// What the SR10.2 invol stores for a SCSI disk: WIN_SCSI_$DINIT's
+		// sector length (format device page) and no start offset; the
+		// precompensation cylinder and the word at 0xC0 stay as invol
+		// set them before the assign (0); one sector per block, also at
+		// 0x9E; the badspot list in the last cylinder + 1 blocks and the
+		// diagnostic area in the two cylinders before it, both past the
+		// volume, and addr_end the whole disk; the name's last byte NUL.
+		bpcs := opt.SCSI.BlocksPerCylinder()
+		pv.SectorSize = drives.SCSISectorBytes
+		pv.PreCompCylinder = 0
+		pv.WordC0 = 0
+		pv.AddrEnd = uint32(scsiBlocks)
+		pv.PhysBadspotDAddr = fs.DAddr(scsiBlocks - (bpcs + 1))
+		pv.PhysDiagDAddr = fs.DAddr(total)
+		pv.BadspotLen = uint16(bpcs)
+		pv.DiagLen = uint16(2 * bpcs)
+		pv.Name[len(pv.Name)-1] = 0
+	}
 	pv.LVDAddr[0] = lvStart
 	pv.AltLVLabelDAddr[0] = altLV
 	copy(pv.Revision[:], opt.Revision)
 	pvBlock := fs.NewBlock(fs.BlockHeader{ObjectUID: uid.UIDpvlabel, LastWritten: clockh}, pv)
-	if err := writeBlockAt(f, 0, &pvBlock); err != nil {
+	if err := fs.WriteBlockTo(f, headers, 0, &pvBlock); err != nil {
 		f.Close()
 		return nil, err
 	}
 	lvBlock := fs.NewBlock(fs.BlockHeader{ObjectUID: uid.UIDlvlabel, LastWritten: clockh, PVBlockDAddr: lvStart}, fs.LVLabel{Version: 1})
-	if err := writeBlockAt(f, lvStart, &lvBlock); err != nil {
+	if err := fs.WriteBlockTo(f, headers, lvStart, &lvBlock); err != nil {
 		f.Close()
 		return nil, err
 	}
 	altBlock := lvBlock
 	altBlock.Header.PVBlockDAddr = altLV
-	if err := writeBlockAt(f, altLV, &altBlock); err != nil {
+	if err := fs.WriteBlockTo(f, headers, altLV, &altBlock); err != nil {
 		f.Close()
 		return nil, err
 	}
@@ -293,13 +332,6 @@ func Format(path string, opt FormatOptions) (*Volume, error) {
 		return nil, err
 	}
 	return v, nil
-}
-
-func writeBlockAt(f *os.File, d fs.DAddr, b *fs.Block) error {
-	if _, err := f.Seek(int64(d)*fs.BlockSize, 0); err != nil {
-		return err
-	}
-	return binary.Write(f, binary.BigEndian, b)
 }
 
 // InstallSysboot writes sysboot as the /sysboot object whose ten pages

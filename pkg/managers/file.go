@@ -11,7 +11,7 @@ import (
 // 32 direct daddrs, a level-1 block of 256 daddrs (pages 32..287), a
 // level-2 block of 256 level-1 blocks (pages 288..65823) and a level-3
 // root.  Data blocks carry the object UID and page number in their block
-// header; file-map blocks carry the first page they map and their level in
+// header (on a volume with headers); file-map blocks carry the first page they map and their level in
 // the top byte of the system-type word (an SR10 volume's level-1 roots are
 // page 32 / 0x01000000, level-2 roots page 288 / 0x02000000).
 type FileManager struct {
@@ -48,7 +48,7 @@ func (fm *FileManager) ReadData(e *fs.VTOCE) ([]byte, error) {
 			if err != nil {
 				return nil, err
 			}
-			if b.Header.ObjectUID != e.Header.ObjectUID || b.Header.PageWithinObject != int32(i) {
+			if fm.v.PV.Headers && (b.Header.ObjectUID != e.Header.ObjectUID || b.Header.PageWithinObject != int32(i)) {
 				return nil, fmt.Errorf("block %d: header says %v page %d, expected %v page %d", d,
 					b.Header.ObjectUID, b.Header.PageWithinObject, e.Header.ObjectUID, i)
 			}

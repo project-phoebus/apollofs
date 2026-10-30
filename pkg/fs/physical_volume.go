@@ -3,6 +3,7 @@ package fs
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -16,6 +17,16 @@ const MaxLogicalVolumes = 10
 type PhysicalVolume struct {
 	Label PVLabel
 	LV    *LogicalVolume
+
+	// Headers tells the image's layout.  A disk whose controller keeps
+	// Apollo block headers (the ANSI, SMD, ST-506 and ESDI controllers:
+	// 1056-byte sectors) is an array of 1056-byte blocks, header first; a
+	// SCSI disk keeps none (WIN_SCSI_$CINIT's unit flags 0x8000 turn off
+	// DISK_IO's header stamp and check) and is an array of 1024-byte
+	// blocks.  Mount tells the two apart by where the PV label is; a
+	// headerless volume's blocks read back with a zero header and only
+	// their data is written.
+	Headers bool
 
 	file *os.File
 }
@@ -55,6 +66,13 @@ type PVLabel struct {
 	WordC0          uint16    // 0xC0 (1 on an SR10.3 volume)
 	RevisionLen     uint16    // 0xC2
 	Revision        [32]byte  // 0xC4 invol's "revision 10.x" text
+	ReservedE4      [0x12]byte
+	// The reserved areas past TotalBlocksInVolume, in blocks: the SR10.2
+	// invol stores, for a SCSI disk, one cylinder for the badspot list and
+	// two for the diagnostic area here (0 on the other disks).
+	BadspotLen uint16 // 0xF6
+	DiagLen    uint16 // 0xF8
+	ReservedFA uint16 // 0xFA (invol clears it)
 }
 
 func (l PVLabel) validate() error {
@@ -83,11 +101,7 @@ func (l PVLabel) validate() error {
 }
 
 func (l PVLabel) Print() {
-	dtName := "unknown"
-	dt, err := drives.GetDriveType(l.DriveType)
-	if err == nil {
-		dtName = dt.Name
-	}
+	dtName := drives.Name(l.DriveType)
 	fmt.Printf("Version: %d\n", l.Version)
 	fmt.Printf("Name: %s\n", string(l.Name[:]))
 	fmt.Printf("UID: %s\n", l.UID.String())
@@ -99,6 +113,9 @@ func (l PVLabel) Print() {
 	fmt.Printf("SectorSize: %d\n", l.SectorSize)
 	fmt.Printf("PreComp: %d\n", l.PreCompCylinder)
 	fmt.Printf("AddrEnd: %d NumParts: %d PartNum: %d Interleave: %d SectorsPerBlock: %d\n", l.AddrEnd, l.NumParts, l.PartNum, l.Interleave, l.SectorsPerBlock)
+	if l.BadspotLen != 0 || l.DiagLen != 0 {
+		fmt.Printf("BadspotLen: %d DiagLen: %d\n", l.BadspotLen, l.DiagLen)
+	}
 	if n := int(l.RevisionLen); n > 0 && n <= len(l.Revision) {
 		fmt.Printf("Revision: %s\n", string(l.Revision[:n]))
 	}
@@ -128,6 +145,11 @@ func mount(diskImage string, writable bool) (*PhysicalVolume, error) {
 	}
 
 	pvol := &PhysicalVolume{file: file}
+	pvol.Headers, err = detectHeaders(file)
+	if err != nil {
+		file.Close()
+		return nil, err
+	}
 	block0, err := pvol.ReadBlock(0)
 	if err != nil {
 		return nil, err
@@ -152,6 +174,37 @@ func mount(diskImage string, writable bool) (*PhysicalVolume, error) {
 	return pvol, nil
 }
 
+// detectHeaders finds the PV label's "APOLLO" (label bytes 2..7): at image
+// byte 2 on a headerless (SCSI) volume, at byte 34, behind the 32-byte
+// block header, on a volume with headers.
+func detectHeaders(f *os.File) (bool, error) {
+	var b [BlockSize]byte
+	n, err := f.ReadAt(b[:], 0)
+	if err != nil && err != io.EOF {
+		return false, err
+	}
+	apollo := []byte("APOLLO")
+	switch {
+	case n >= 8 && bytes.Equal(b[2:8], apollo):
+		return false, nil
+	case n >= BlockHeaderSize+8 && bytes.Equal(b[BlockHeaderSize+2:BlockHeaderSize+8], apollo):
+		return true, nil
+	}
+	return false, errors.New("no PV label ('APOLLO') at block 0, with or without a block header")
+}
+
+// BlockBytes is the size of one block in the image: 1056 with headers,
+// 1024 without.
+func (pvol *PhysicalVolume) BlockBytes() int64 { return BlockBytes(pvol.Headers) }
+
+// BlockBytes is the size of one block in an image of either layout.
+func BlockBytes(headers bool) int64 {
+	if headers {
+		return BlockSize
+	}
+	return BlockDataSize
+}
+
 func (pvol *PhysicalVolume) Unmount() error {
 	if pvol.file != nil {
 		err := pvol.file.Close()
@@ -162,6 +215,11 @@ func (pvol *PhysicalVolume) Unmount() error {
 }
 
 func (pvol *PhysicalVolume) PrintLabel() {
+	if pvol.Headers {
+		fmt.Println("Layout: 1056-byte blocks with block headers")
+	} else {
+		fmt.Println("Layout: 1024-byte blocks, no block headers (SCSI)")
+	}
 	fmt.Println("PV Label:")
 	pvol.Label.Print()
 }
@@ -177,13 +235,17 @@ func (pvol *PhysicalVolume) LogicalVolumes() []int {
 }
 
 func (pvol *PhysicalVolume) ReadBlock(blockNum DAddr) (*Block, error) {
-	_, err := pvol.file.Seek(int64(blockNum*BlockSize), io.SeekStart)
+	_, err := pvol.file.Seek(int64(blockNum)*pvol.BlockBytes(), io.SeekStart)
 	if err != nil {
 		return nil, err
 	}
 
 	var block Block
-	err = binary.Read(pvol.file, binary.BigEndian, &block)
+	if pvol.Headers {
+		err = binary.Read(pvol.file, binary.BigEndian, &block)
+	} else {
+		_, err = io.ReadFull(pvol.file, block.Data[:])
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -191,16 +253,21 @@ func (pvol *PhysicalVolume) ReadBlock(blockNum DAddr) (*Block, error) {
 	return &block, nil
 }
 
+// WriteBlock writes a block; on a headerless volume only its data.
 func (pvol *PhysicalVolume) WriteBlock(blockNum DAddr, block *Block) error {
-	_, err := pvol.file.Seek(int64(blockNum*BlockSize), io.SeekStart)
+	return WriteBlockTo(pvol.file, pvol.Headers, blockNum, block)
+}
+
+// WriteBlockTo writes a block into an image file of either layout.
+func WriteBlockTo(f *os.File, headers bool, blockNum DAddr, block *Block) error {
+	_, err := f.Seek(int64(blockNum)*BlockBytes(headers), io.SeekStart)
 	if err != nil {
 		return err
 	}
 
-	err = binary.Write(pvol.file, binary.BigEndian, block)
-	if err != nil {
-		return err
+	if headers {
+		return binary.Write(f, binary.BigEndian, block)
 	}
-
-	return nil
+	_, err = f.Write(block.Data[:])
+	return err
 }

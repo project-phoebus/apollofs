@@ -22,8 +22,9 @@ func (r *CheckReport) problem(f string, a ...any) {
 }
 
 // Check walks the volume from "/" and "//" and cross-checks the VTOC
-// buckets, every VTOCE's file map and block headers, directory pages and
-// parent pointers, and the BAT bitmap, partition counts and free count.
+// buckets, every VTOCE's file map and block headers (a SCSI volume has
+// none), directory pages and parent pointers, and the BAT bitmap, partition
+// counts and free count.
 func (v *Volume) Check() (*CheckReport, error) {
 	r := &CheckReport{}
 	owner := map[fs.DAddr]string{}
@@ -63,7 +64,7 @@ func (v *Volume) Check() (*CheckReport, error) {
 		if err != nil {
 			return nil, err
 		}
-		if b.Header.ObjectUID != uid.UIDvtoc_bkt || binary.BigEndian.Uint32(b.Data[0x3F8:]) != bucketBlockMagic || fs.DAddr(binary.BigEndian.Uint32(b.Data[0x3FC:])) != d {
+		if (v.PV.Headers && b.Header.ObjectUID != uid.UIDvtoc_bkt) || binary.BigEndian.Uint32(b.Data[0x3F8:]) != bucketBlockMagic || fs.DAddr(binary.BigEndian.Uint32(b.Data[0x3FC:])) != d {
 			r.problem("bucket block %d: bad header/magic/self", d)
 		}
 		for k := 0; k < bucketsPerBlock; k++ {
@@ -118,7 +119,7 @@ func (v *Volume) Check() (*CheckReport, error) {
 		if err != nil {
 			return nil, err
 		}
-		if b.Header.ObjectUID != uid.UIDvtoc || binary.BigEndian.Uint32(b.Data[0x3F8:]) != vtoceBlockMagic || fs.DAddr(binary.BigEndian.Uint32(b.Data[0x3FC:])) != d {
+		if (v.PV.Headers && b.Header.ObjectUID != uid.UIDvtoc) || binary.BigEndian.Uint32(b.Data[0x3F8:]) != vtoceBlockMagic || fs.DAddr(binary.BigEndian.Uint32(b.Data[0x3FC:])) != d {
 			r.problem("VTOCE block %d: bad header/magic/self", d)
 		}
 		inUse := 0
@@ -187,7 +188,7 @@ func (v *Volume) Check() (*CheckReport, error) {
 				r.problem("%s: %v", p, err)
 				continue
 			}
-			if b.Header.ObjectUID != u || b.Header.PageWithinObject != int32(i) {
+			if v.PV.Headers && (b.Header.ObjectUID != u || b.Header.PageWithinObject != int32(i)) {
 				r.problem("%s: block %d header %v/%d, expected page %d", p, d, b.Header.ObjectUID, b.Header.PageWithinObject, i)
 			}
 		}
