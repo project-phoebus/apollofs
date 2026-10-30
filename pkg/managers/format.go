@@ -147,7 +147,7 @@ func Format(path string, opt FormatOptions) (*Volume, error) {
 		SectorSize:          fs.BlockSize,
 		PreCompCylinder:     0x7FF,
 		Reserved9A:          [6]byte{0, 0, 0, 0, 0, 1},
-		ReservedA4:          2,
+		SysbootDAddr:        2,
 		NumParts:            1,
 		PartNum:             1,
 		SectorsPerBlock:     1,
@@ -418,6 +418,17 @@ func (v *Volume) InstallSysboot(data []byte, attrs *Attrs) error {
 		return err
 	}
 	v.LV.Label.VTOCHeader.SysbootVTOCX = x
+	// the SR10.2 invol records the pages it installs in the PV label: the
+	// PROM loads that many blocks from SysbootDAddr
+	b, err := v.PV.ReadBlock(0)
+	if err != nil {
+		return err
+	}
+	binary.BigEndian.PutUint16(b.Data[0xFA:], uint16(pages))
+	if err := v.PV.WriteBlock(0, b); err != nil {
+		return fmt.Errorf("writing the PV label: %w", err)
+	}
+	v.PV.Label.SysbootBlocks = uint16(pages)
 	return nil
 }
 

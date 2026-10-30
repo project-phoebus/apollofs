@@ -57,7 +57,7 @@ type PVLabel struct {
 	// SR10 extension (disk_$pv_label_t in domain_os/disk/disk_internal.h)
 	Reserved9A      [6]byte   // 0x9A (an SR10.3 invol writes 0,0,1 here)
 	AddrEnd         uint32    // 0xA0 0 = no end
-	ReservedA4      uint32    // 0xA4
+	SysbootDAddr    uint32    // 0xA4 sysboot's first block (invol: 2)
 	NumParts        uint16    // 0xA8 volumes in a striped set (1)
 	PartNum         uint16    // 0xAA this volume's place in the set (1)
 	PartDev         [8]uint16 // 0xAC
@@ -72,7 +72,10 @@ type PVLabel struct {
 	// two for the diagnostic area here (0 on the other disks).
 	BadspotLen uint16 // 0xF6
 	DiagLen    uint16 // 0xF8
-	ReservedFA uint16 // 0xFA (invol clears it)
+	// The blocks of sysboot from SysbootDAddr: invol clears it, then
+	// counts the pages it installs (the MD9 PROM loads that many blocks
+	// and takes 0 or more than 255 as "No boot program on this disk").
+	SysbootBlocks uint16 // 0xFA
 }
 
 func (l PVLabel) validate() error {
