@@ -17,3 +17,10 @@ func TestClock(t *testing.T) {
 	require.Equal(t, byte(h>>24), b[0])
 	require.Equal(t, byte(0), b[6])
 }
+
+func TestNowSourceDateEpoch(t *testing.T) {
+	t.Setenv("SOURCE_DATE_EPOCH", "631152000")
+	require.Equal(t, time.Date(1990, 1, 1, 0, 0, 0, 0, time.UTC), Now())
+	t.Setenv("SOURCE_DATE_EPOCH", "")
+	require.WithinDuration(t, time.Now(), Now(), time.Minute)
+}

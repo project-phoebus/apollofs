@@ -1,6 +1,10 @@
 package util
 
-import "time"
+import (
+	"os"
+	"strconv"
+	"time"
+)
 
 // The Apollo clock is a 48-bit count of 4-microsecond ticks since midnight
 // 1980-01-01 UTC.  Label and block-header times are its high 32 bits
@@ -37,4 +41,17 @@ func ClockBytes(t time.Time) [8]byte {
 	b[0], b[1], b[2], b[3] = byte(c>>40), byte(c>>32), byte(c>>24), byte(c>>16)
 	b[4], b[5] = byte(c>>8), byte(c)
 	return b
+}
+
+// Now is the clock apollofs stamps new objects, labels and block headers
+// with: the host's, or SOURCE_DATE_EPOCH (seconds since 1970-01-01 UTC, the
+// reproducible-builds convention) when that is set, so that a build script
+// writes the same image on every run.
+func Now() time.Time {
+	if s := os.Getenv("SOURCE_DATE_EPOCH"); s != "" {
+		if n, err := strconv.ParseInt(s, 10, 64); err == nil {
+			return time.Unix(n, 0).UTC()
+		}
+	}
+	return time.Now()
 }
