@@ -9,9 +9,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/domainos-archeology/apollofs/pkg/ct"
-	"github.com/domainos-archeology/apollofs/pkg/managers"
-	"github.com/domainos-archeology/apollofs/pkg/uid"
+	"github.com/project-phoebus/apollofs/pkg/ct"
+	"github.com/project-phoebus/apollofs/pkg/managers"
+	"github.com/project-phoebus/apollofs/pkg/uid"
 )
 
 var ctVerifyRoot string

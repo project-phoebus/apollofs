@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/domainos-archeology/apollofs/pkg/uid"
+	"github.com/project-phoebus/apollofs/pkg/uid"
 )
 
 // SR10 directories are B-trees of 1024-byte pages (domain_os/dir/

@@ -8,8 +8,8 @@ import (
 	"io"
 	"os"
 
-	"github.com/domainos-archeology/apollofs/pkg/drives"
-	"github.com/domainos-archeology/apollofs/pkg/uid"
+	"github.com/project-phoebus/apollofs/pkg/drives"
+	"github.com/project-phoebus/apollofs/pkg/uid"
 )
 
 const MaxLogicalVolumes = 10

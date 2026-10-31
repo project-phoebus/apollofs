@@ -5,8 +5,8 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"github.com/domainos-archeology/apollofs/pkg/uid"
-	"github.com/domainos-archeology/apollofs/pkg/util"
+	"github.com/project-phoebus/apollofs/pkg/uid"
+	"github.com/project-phoebus/apollofs/pkg/util"
 )
 
 type LogicalVolume struct {

@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/domainos-archeology/apollofs/pkg/managers"
+	"github.com/project-phoebus/apollofs/pkg/managers"
 )
 
 var cpbootAttrs string

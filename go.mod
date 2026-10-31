@@ -1,4 +1,4 @@
-module github.com/domainos-archeology/apollofs
+module github.com/project-phoebus/apollofs
 
 go 1.18
 

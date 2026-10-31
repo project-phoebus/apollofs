@@ -6,8 +6,8 @@ import (
 	"encoding/hex"
 	"fmt"
 
-	"github.com/domainos-archeology/apollofs/pkg/uid"
-	"github.com/domainos-archeology/apollofs/pkg/util"
+	"github.com/project-phoebus/apollofs/pkg/uid"
+	"github.com/project-phoebus/apollofs/pkg/util"
 )
 
 const BlockDataSize = 1024

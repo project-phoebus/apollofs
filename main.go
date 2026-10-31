@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/domainos-archeology/apollofs/cmd"
+	"github.com/project-phoebus/apollofs/cmd"
 )
 
 func main() {

@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/domainos-archeology/apollofs/pkg/fs"
-	"github.com/domainos-archeology/apollofs/pkg/uid"
+	"github.com/project-phoebus/apollofs/pkg/fs"
+	"github.com/project-phoebus/apollofs/pkg/uid"
 )
 
 // CheckReport is what Check found.

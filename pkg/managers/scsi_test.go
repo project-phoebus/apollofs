@@ -11,8 +11,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/domainos-archeology/apollofs/pkg/drives"
-	"github.com/domainos-archeology/apollofs/pkg/fs"
+	"github.com/project-phoebus/apollofs/pkg/drives"
+	"github.com/project-phoebus/apollofs/pkg/fs"
 )
 
 // a small SCSI disk: 5120 sectors, 2559 blocks reported, 128 blocks per

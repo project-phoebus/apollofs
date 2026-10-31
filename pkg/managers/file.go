@@ -4,7 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"github.com/domainos-archeology/apollofs/pkg/fs"
+	"github.com/project-phoebus/apollofs/pkg/fs"
 )
 
 // FileManager reads and writes object contents through the VTOCE file map:

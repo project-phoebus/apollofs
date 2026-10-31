@@ -2,7 +2,7 @@
 // of the SR10 release tapes: 512-byte blocks, ANSI VOL1/HDR1/EOF1 labels
 // around each tape file, tape marks stored as blocks starting 0xDEAFFAED,
 // and a stream of typed records inside the data blocks.  It is modelled on
-// readct (github.com/domainos-archeology/readct) and additionally keeps
+// readct (github.com/project-phoebus/readct) and additionally keeps
 // what an installer needs: which labelled tape file (release
 // subcomponent) each object came from and the raw VTOCE attribute image
 // wbak recorded for it.

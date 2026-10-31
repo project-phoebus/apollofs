@@ -5,9 +5,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/domainos-archeology/apollofs/pkg/fs"
-	"github.com/domainos-archeology/apollofs/pkg/managers"
-	"github.com/domainos-archeology/apollofs/pkg/util"
+	"github.com/project-phoebus/apollofs/pkg/fs"
+	"github.com/project-phoebus/apollofs/pkg/managers"
+	"github.com/project-phoebus/apollofs/pkg/util"
 )
 
 var listLong, listRecursive bool

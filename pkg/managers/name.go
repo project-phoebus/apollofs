@@ -7,9 +7,9 @@ import (
 	"path"
 	"strings"
 
-	"github.com/domainos-archeology/apollofs/pkg/fs"
-	"github.com/domainos-archeology/apollofs/pkg/uid"
-	"github.com/domainos-archeology/apollofs/pkg/util"
+	"github.com/project-phoebus/apollofs/pkg/fs"
+	"github.com/project-phoebus/apollofs/pkg/uid"
+	"github.com/project-phoebus/apollofs/pkg/util"
 )
 
 // NamingManager resolves pathnames through the "/" (disk entry) directory

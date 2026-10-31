@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/domainos-archeology/apollofs/pkg/fs"
-	"github.com/domainos-archeology/apollofs/pkg/managers"
+	"github.com/project-phoebus/apollofs/pkg/fs"
+	"github.com/project-phoebus/apollofs/pkg/managers"
 	"github.com/spf13/cobra"
 )
 

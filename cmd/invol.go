@@ -8,8 +8,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/domainos-archeology/apollofs/pkg/drives"
-	"github.com/domainos-archeology/apollofs/pkg/managers"
+	"github.com/project-phoebus/apollofs/pkg/drives"
+	"github.com/project-phoebus/apollofs/pkg/managers"
 )
 
 var (

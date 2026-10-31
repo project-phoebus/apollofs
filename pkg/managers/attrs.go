@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/domainos-archeology/apollofs/pkg/fs"
-	"github.com/domainos-archeology/apollofs/pkg/uid"
+	"github.com/project-phoebus/apollofs/pkg/fs"
+	"github.com/project-phoebus/apollofs/pkg/uid"
 )
 
 // Attrs is the 0x78-byte VTOCE attribute image an rbak tape stores for each
