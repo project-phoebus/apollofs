@@ -1,9 +1,13 @@
 package main
 
 import (
+	"os"
+
 	"github.com/project-phoebus/apollofs/cmd"
 )
 
 func main() {
-	cmd.Execute()
+	if err := cmd.Execute(); err != nil {
+		os.Exit(1)
+	}
 }
