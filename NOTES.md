@@ -1,4 +1,4 @@
-# apollofs notes: SR10 on-disk format, the SR10.2 DN300 and DN2500 volumes
+# apollofs notes: SR10 on-disk format, the SR10.2 DN300, DN2500 and DN3500 volumes
 
 ## On-disk format (as written and checked by apollofs)
 
@@ -92,6 +92,42 @@ sau9/invol, loaded at 0x04002C00: file offset = address - 0x04002C00).
 
 Not reproduced: invol's placement of the LV (apollofs's layout is the same
 as on its other volumes), the badspot list's contents (left zero).
+
+## ESDI volumes (invol -t 5nn)
+
+Sources: the labels and reserved cylinders of two volumes an SR10.3 invol
+made on MAME's DN3500 (OMTI 8621, Maxtor XT-4380E, dtype 0x504): an
+installed SR10.3 volume and a freshly involed one, which agree but for
+UIDs, times and names; MAME's devices/bus/isa/omti8621.cpp.
+
+- The disk: the OMTI 8621 keeps Apollo block headers (1056-byte blocks)
+  and reports one cylinder fewer than the drive table lists: MAME's
+  Maxtor is 1223 x 15 x 18 (the table's 0x504 has 1224 cylinders) and its
+  Micropolis 1023 x 8 x 18 (0x507: 1024), and the labels' addr_end is
+  1223 x 270 = 330210.  The image is those cylinders, 348,701,760 bytes
+  for the Maxtor, the size MAME creates; MAME takes an image of 300,000
+  blocks or more as the Maxtor and anything smaller as the Micropolis.
+- The PV label, as invol stores it: total_blocks = every cylinder but the
+  last three (329400); the diagnostic area (0x90) in the two cylinders
+  right after the volume and the badspot list (0x8C) in the last one;
+  addr_end (0xA0) the whole disk; sector_size 1083; precomp 0x7FF; 0x9A
+  0,0,1 and 0xC0 1, as on the DN300's; the name's last byte NUL.  0xF6 and
+  0xF8 hold MAME's 0x55 creation fill on both volumes, so invol does not
+  write them for this class; apollofs leaves them zero.
+- The diagnostic cylinders are formatted: every byte of every block, the
+  headers too, is 0x6C (the OMTI's FORMAT TRACK fill).
+- The badspot cylinder: every block has a header of 01FF8302 0104BE9A
+  01FFB16A, the time, 01FF0000, its own daddr (the first two words differ
+  between the two volumes; not understood: DISK_$READ_MFG_BADSPOTS takes a
+  block header error as ok) and zero data, except that the first block of
+  tracks 0-4 holds the badspot list, empty (byte 0 = 1, the last four
+  bytes FF FF FF 01), and the last block of tracks 10-14, the disk's last
+  block among them, a copy of the PV label with its own daddr in the
+  header.  cpboot rewrites the copies with the label.
+
+Not reproduced (on any volume type): the words invol stores at 0x3F8 of
+the PV label (0xFEDCA986) and the LV label (0xFEDCA987); the SR10.2
+kernel boots volumes without them.
 
 ## The SR10.2 DN300 volume (scripts/build_sr10.2_dn300.sh)
 

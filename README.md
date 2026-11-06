@@ -57,6 +57,9 @@ with a drive type from `invol --list-dtypes`) are arrays of 1056-byte
 blocks, and SCSI disks (`invol --scsi cylinders/heads/sectors`, 512-byte
 sectors per track, drive type class 0x700) are arrays of 1024-byte blocks
 with no headers, block N at byte N x 1024 (a raw MAME `.hd` image).
+An ESDI drive type (class 0x500, e.g. `-t 504` for the Maxtor XT-4380E)
+makes the disk MAME's OMTI 8621 has, with the label, diagnostic and
+badspot cylinders an SR10 invol writes (NOTES.md, "ESDI volumes").
 `info labels` says which one an image is.  Set `SOURCE_DATE_EPOCH` to make
 apollofs stamp a fixed time, for reproducible images.
 

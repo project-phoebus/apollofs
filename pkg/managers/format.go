@@ -91,6 +91,15 @@ func Format(path string, opt FormatOptions) (*Volume, error) {
 		total = scsiBlocks - (3*opt.SCSI.BlocksPerCylinder() + 1)
 		imageBytes = opt.SCSI.ImageBytes()
 	}
+	var esdi *drives.ESDIDisk
+	if opt.SCSI == nil && opt.TotalBlocks == 0 && dt.IsESDI() {
+		// An SR10 invol on an ESDI disk (see NOTES.md): the image is the
+		// cylinders the controller addresses, and the volume ends three
+		// cylinders before their end.
+		esdi = &drives.ESDIDisk{DriveType: dt}
+		total = esdi.VolumeBlocks()
+		imageBytes = int64(esdi.AddrEnd()) * fs.BlockSize
+	}
 	bpc := int(dt.BlocksPerTrack) * int(dt.Heads)
 	if total < 2000 || bpc == 0 {
 		return nil, fmt.Errorf("volume too small (%d blocks)", total)
@@ -173,6 +182,17 @@ func Format(path string, opt FormatOptions) (*Volume, error) {
 		pv.DiagLen = uint16(2 * bpcs)
 		pv.Name[len(pv.Name)-1] = 0
 	}
+	if esdi != nil {
+		// What an SR10.3 invol stored for a 0x504 disk: the controller's
+		// sector size, the diagnostic cylinders right after the volume and
+		// the badspot cylinder after them, addr_end the whole disk, the
+		// name's last byte NUL.
+		pv.SectorSize = drives.ESDISectorSize
+		pv.AddrEnd = uint32(esdi.AddrEnd())
+		pv.PhysDiagDAddr = fs.DAddr(esdi.DiagDAddr())
+		pv.PhysBadspotDAddr = fs.DAddr(esdi.BadspotDAddr())
+		pv.Name[len(pv.Name)-1] = 0
+	}
 	pv.LVDAddr[0] = lvStart
 	pv.AltLVLabelDAddr[0] = altLV
 	copy(pv.Revision[:], opt.Revision)
@@ -191,6 +211,12 @@ func Format(path string, opt FormatOptions) (*Volume, error) {
 	if err := fs.WriteBlockTo(f, headers, altLV, &altBlock); err != nil {
 		f.Close()
 		return nil, err
+	}
+	if esdi != nil {
+		if err := writeESDIReserved(f, *esdi, &pvBlock, &pv, clockh); err != nil {
+			f.Close()
+			return nil, err
+		}
 	}
 	f.Close()
 
@@ -429,6 +455,9 @@ func (v *Volume) InstallSysboot(data []byte, attrs *Attrs) error {
 		return fmt.Errorf("writing the PV label: %w", err)
 	}
 	v.PV.Label.SysbootBlocks = uint16(pages)
+	if err := writePVLabelCopies(b, &v.PV.Label, v.PV.WriteBlock); err != nil {
+		return fmt.Errorf("writing the PV label's copies: %w", err)
+	}
 	return nil
 }
 
