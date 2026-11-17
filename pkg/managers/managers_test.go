@@ -48,14 +48,15 @@ func reopen(t *testing.T, path string, v *Volume) *Volume {
 func TestFormat(t *testing.T) {
 	path, v := newTestVolume(t, 8000)
 	r := requireClean(t, v)
-	require.Equal(t, 2, r.Dirs)
+	require.Equal(t, 5, r.Dirs) // "/", "//", sys, node_data, system_logs
 	l := v.LV.Label
-	require.Equal(t, int32(8000-1-FirstDataBlock), l.BATHeader.NumBlocksRepresented)
+	// a 0x105 disk of 8000 blocks: the volume ends 5 cylinders early
+	require.Equal(t, int32(8000-300-1-FirstDataBlock), l.BATHeader.NumBlocksRepresented)
 	require.Equal(t, int16(2), l.VTOCHeader.Version)
 	v = reopen(t, path, v)
 	defer v.Close()
 	r = requireClean(t, v)
-	require.Equal(t, 2, r.Dirs)
+	require.Equal(t, 5, r.Dirs)
 	net, err := v.Names.NetRootUID()
 	require.NoError(t, err)
 	d, err := v.Names.ReadDir(net)
@@ -74,7 +75,7 @@ func TestFormat(t *testing.T) {
 	require.Equal(t, uid.Empty, pf.Header.DirectoryUID)
 	require.Equal(t, uint32(40*1024), pf.Header.CurrentLength)
 	require.Equal(t, uint32(41), pf.Header.BlocksUsed) // 40 pages + a level-1 map block
-	require.Equal(t, 3, r.Objects)
+	require.Equal(t, 7, r.Objects)                     // the five directories, lost+found.list, the paging file
 }
 
 func TestFilesRoundTrip(t *testing.T) {
@@ -265,7 +266,7 @@ func TestHugeDirectory(t *testing.T) {
 		require.NoError(t, err)
 	}
 	r := requireClean(t, v)
-	require.Equal(t, 2004, r.Objects) // "/", "//", /d, 2000 files, paging file
+	require.Equal(t, 2008, r.Objects) // invol's 6, /d, 2000 files, paging file
 	// 22 bucket blocks hold 87 x 20 slots: some chains overflowed
 	require.Greater(t, v.LV.Label.VTOCHeader.VTOCBlocksUsed, nBkt)
 	v = reopen(t, path, v)

@@ -209,8 +209,11 @@ func (nm *NamingManager) Mkdir(p string, attrs *Attrs, defProt *[2]fs.DirDefProt
 	if err != nil {
 		return uid.Empty, err
 	}
-	if parent.Lookup(name) != nil {
-		return uid.Empty, fmt.Errorf("%s: %w", p, ErrExists)
+	if ent := parent.Lookup(name); ent != nil {
+		if ent.Type != fs.DirEntryObject || (attrs == nil && defProt == nil) {
+			return uid.Empty, fmt.Errorf("%s: %w", p, ErrExists)
+		}
+		return ent.UID, nm.restoreDir(p, ent.UID, attrs, defProt)
 	}
 	e := nm.newVTOCE(attrs, true, parent.UID)
 	x, err := nm.v.VTOC.AllocateEntry(e, parent.X.BlockDAddr())
@@ -227,6 +230,40 @@ func (nm *NamingManager) Mkdir(p string, attrs *Attrs, defProt *[2]fs.DirDefProt
 	}
 	parent.Entries = append(parent.Entries, fs.DirEnt{Type: fs.DirEntryObject, Name: []byte(name), UID: e.Header.ObjectUID})
 	return e.Header.ObjectUID, nm.WriteDir(parent)
+}
+
+// restoreDir gives an existing directory the attributes and default
+// protections a mkdir with them would have (what rbak does to a directory
+// it restores over): invol makes /sys, /sys/node_data and
+// /sys/node_data/system_logs, and the install's tape records then describe
+// them.  The directory keeps its UID, parent, entries and blocks.
+func (nm *NamingManager) restoreDir(p string, u uid.UID, attrs *Attrs, defProt *[2]fs.DirDefProt) error {
+	d, err := nm.ReadDir(u)
+	if err != nil {
+		if errors.Is(err, ErrNotDir) {
+			return fmt.Errorf("%s: %w", p, ErrExists)
+		}
+		return err
+	}
+	if attrs != nil {
+		e := d.VTOCE
+		old := *e
+		e.SetAttrs(*attrs)
+		if !e.IsDirectory() {
+			*e = old
+			return fmt.Errorf("%s: attributes do not describe a directory", p)
+		}
+		e.Header.Version = old.Header.Version
+		e.Header.Flags |= fs.VTOCEFlagInUse
+		e.Header.ObjectUID, e.Header.DirectoryUID = old.Header.ObjectUID, old.Header.DirectoryUID
+		e.Header.CurrentLength, e.Header.BlocksUsed = old.Header.CurrentLength, old.Header.BlocksUsed
+		e.Header.SystemType = 1
+		e.Header.ObjectTypeDefUID = uid.Empty
+	}
+	if defProt != nil {
+		d.Root.DirDefProt, d.Root.FileDefProt = defProt[0], defProt[1]
+	}
+	return nm.WriteDir(d)
 }
 
 // MkdirAll creates p and any missing parents with default attributes.

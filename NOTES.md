@@ -125,9 +125,72 @@ UIDs, times and names; MAME's devices/bus/isa/omti8621.cpp.
   block among them, a copy of the PV label with its own daddr in the
   header.  cpboot rewrites the copies with the label.
 
-Not reproduced (on any volume type): the words invol stores at 0x3F8 of
-the PV label (0xFEDCA986) and the LV label (0xFEDCA987); the SR10.2
-kernel boots volumes without them.
+Not reproduced on ESDI volumes: the words invol stores at 0x3F8 of the PV
+label (0xFEDCA986) and the LV label (0xFEDCA987); the SR10.2 kernel boots
+volumes without them.  The sau2 invol's volumes have them (below).
+
+## The SR10.2 sau2 invol (invol -t for the other Winchesters)
+
+Source: the SR10.2 standalone invol for sau2 (install/ri.apollo.os.v.10.2/
+sau2/invol, loaded at 0x102000: file offset = address - 0x102000), traced
+in Ghidra; the routine names are the ones given there (set_disk_layout,
+process_disk, create_lv, ...).  apollofs makes every Winchester that is not
+ESDI or SCSI (classes 0x000 to 0x400, the DN300's 0x103 to 0x105 among
+them) as this invol does.
+
+- The disk is the driver's block count (DISK_INIT: cylinders x heads x
+  sectors per track; or TotalBlocks), the PV label's addr_end.
+  set_disk_layout keeps the last cylinders out of the volume (bpc = blocks
+  per cylinder):
+
+  | class                     | volume ends | badspot list | diagnostic area |
+  |---------------------------|-------------|--------------|-----------------|
+  | 0x000, 0x100, 0x200       | 5 bpc back  | bpc back     | 2 bpc back      |
+  | 0x300 to 0x600, any other | 3 bpc back  | bpc back     | 3 bpc back      |
+  | 0x700                     | 3 bpc + 1   | bpc + 1 back | 3 bpc + 1 back  |
+
+  (The class 0x500 row is the ESDI layout above; the class 0x700 row the
+  SCSI one.)  So a whole PRIAM 7050 has total_blocks 62640, badspot_daddr
+  62880, diag_daddr 62820, addr_end 62940.
+- The interleave: set_disk_layout's default, by class: 0x000 to 0x300 2,
+  0x400 to 0x700 1, any other class 2 (floppy 2, storage module type 0 9,
+  others 5).  process_disk takes it as the LV interleave and create_lv
+  stores it as a longword at LV label +0x3E: step_blocks 0, bat_step 2 on
+  the DN300's disks.  BAT_$ALLOCATE (domain_os/bat/allocate.pas) spreads
+  the blocks of one call that far apart, so the kernel can start the next
+  read before the next sector passes.  apollofs lays files out the same
+  way: on a volume whose step is above 1 it walks the bitmap as
+  BAT_$ALLOCATE does for one call of all the object's blocks (stride,
+  chunk and partition sweeps); with step 1 it keeps its contiguous runs.
+  Step 0 is BAT_$MOUNT's 3.
+- PV label (process_disk): the name blank padded, its last byte NUL;
+  sector_start and sector_size the ANSI driver's words (0 and 1120 for
+  0x104 and 0x105, 0 and 1181 for 0x103; the other classes keep apollofs's
+  0/1056); precomp 0 and the word at 0xC0 0 (left as invol set them before
+  the assign; not for the classes without the ANSI words); 0xA4 2;
+  sectors_per_block 1 at 0xBE and 0x9E; 0xBC 0 (set only for a multi-disk
+  group: not the sector interleave); 0xFEDCA986 at 0x3F8, 0 at 0x3FC.
+- LV label (create_lv, SR10): the step above; free_blocks counted as
+  create_lv frees the blocks (bat_free_block; it only starts at 0); only
+  the mount time (0xB0) and last_valid_time (0xE6) of the times, with
+  tz_name `UTC ` (0xE2): the node and the boot, dismount and current times
+  are BAT_$MOUNT's; node_data's UID at 0xF4; 0xFEDCA987 at 0x3F8 and
+  0xFFFFFFFF at 0x3FC (no alternate-label word).
+- BAT partitions (create_lv): cyls = LV size / bpc; zones = ceil(cyls /
+  (0x2800 / bpc)), 1 to 64; partition_start_offset = bpc - LV start mod
+  bpc (0 when that is bpc); partition_size = ceil(cyls / zones) cylinders;
+  zones left empty by the rounding are dropped; zones 0..n-1 state 1, then
+  (n+1)/2 zones from (n+2)/4 state 2 (VTOCEs may go there).  The PRIAM
+  7050: 7 zones of 149 cylinders.
+- Root objects: / holds lost+found.list (an empty file), sys and sysboot
+  (cpboot makes it here); // the node's entry; sys holds node_data, and
+  node_data system_logs.  apollofs gives the new ones its default
+  attributes; a later `mkdir -a` of one of these directories (the build
+  script's tape records) gives it those attributes in place, as rbak does.
+- Not reproduced: the placements create_lv computes (the BAT and the VTOC
+  extents, the VTOC hash size: the SR10.3 layout above stands), the order
+  UIDs are made in, invol's creation attributes of the root objects, and
+  the alternate LV label word.
 
 ## The SR10.2 DN300 volume (scripts/build_sr10.2_dn300.sh)
 

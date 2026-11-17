@@ -169,11 +169,28 @@ func (bm *BATManager) Allocate(hint fs.DAddr) (fs.DAddr, error) {
 	}
 }
 
-// AllocateRun allocates n blocks, contiguous when a big enough run exists
-// at or after hint, otherwise wherever they fit.
+// Step is the volume's BAT step, the stride BAT_$ALLOCATE spreads the
+// blocks of one allocation by: the label's step_long (+0x3E, step_blocks
+// and bat_step read as one longword), 3 when that is 0 (BAT_$MOUNT).
+func (bm *BATManager) Step() int {
+	h := bm.hdr()
+	s := int(h.StepBlocks)<<16 | int(h.BatStep)
+	if s == 0 {
+		s = 3
+	}
+	return s
+}
+
+// AllocateRun allocates n blocks.  With a BAT step above 1 it walks the
+// bitmap as BAT_$ALLOCATE does (allocateStepped), so a file's pages land
+// step blocks apart; otherwise the blocks are contiguous when a big enough
+// run exists at or after hint, and wherever they fit when not.
 func (bm *BATManager) AllocateRun(n int, hint fs.DAddr) ([]fs.DAddr, error) {
 	if n == 0 {
 		return nil, nil
+	}
+	if bm.Step() > 1 {
+		return bm.allocateStepped(n, hint)
 	}
 	if int(bm.hdr().NumFreeBlocks) < n {
 		return nil, ErrNoSpace
@@ -223,6 +240,157 @@ func (bm *BATManager) AllocateRun(n int, hint fs.DAddr) ([]fs.DAddr, error) {
 	return out, nil
 }
 
+// allocChunk is BAT_$MOUNT's allocation chunk: a cylinder of the disk
+// (blocks_per_cyl), and the offset, in blocks past first_data_block, of the
+// first chunk boundary (a physical cylinder boundary).
+func (bm *BATManager) allocChunk() (size, offset int64) {
+	pv := bm.lvol.PhysicalVolume()
+	if pv == nil {
+		return 0x7FFFFFFF, 0
+	}
+	size = int64(pv.Label.BlocksPerTrack) * int64(pv.Label.TracksPerCylinder)
+	if size <= 0 {
+		return 0x7FFFFFFF, 0
+	}
+	offset = size - (int64(bm.lvol.StartDAddr())+int64(bm.hdr().BlockNumOfFirstBATBit))%size
+	return size, offset
+}
+
+// allocateStepped takes n blocks the way BAT_$ALLOCATE (domain_os/bat/
+// allocate.pas) does for one call: from the hint's partition and chunk,
+// a stride counter rearmed from the step after every block taken, every
+// position (free or not) counting it down, so the blocks of one call lie
+// at least step blocks apart; a chunk that had free blocks skipped is
+// swept again from its start, then the next chunk; at the partition's end
+// the partition is swept again while it has free blocks, then the next
+// one, wrapping to the first.  The block numbers are LV-relative.
+func (bm *BATManager) allocateStepped(n int, hint fs.DAddr) ([]fs.DAddr, error) {
+	h := bm.hdr()
+	l := &bm.lvol.Label
+	if int(h.NumFreeBlocks) < n {
+		return nil, ErrNoSpace
+	}
+	total := int64(h.NumBlocksRepresented)
+	first := int64(h.BlockNumOfFirstBATBit)
+	step := int64(bm.Step())
+	nParts := int64(l.NumPartitions)
+	pStartOff := int64(l.PartitionStartOffset)
+	pSize := int64(l.PartitionSize)
+	if l.Version == 0 || nParts == 0 || pSize == 0 {
+		nParts, pSize = 1, 0x7FFFFFFF
+	}
+	cSize, cOff := bm.allocChunk()
+	partFree := func(i int64) bool {
+		if l.Version == 0 || l.NumPartitions == 0 {
+			return h.NumFreeBlocks != 0
+		}
+		return l.Partitions[i].FreeCount != 0
+	}
+	chunkOf := func(rel int64) (int64, int64) {
+		if rel < cOff {
+			return 0, cOff
+		}
+		s := (rel-cOff)/cSize*cSize + cOff
+		return s, s + cSize
+	}
+
+	var rel int64
+	if int64(hint) >= first {
+		rel = int64(hint) - first
+	}
+	if rel >= total {
+		rel = total - 1
+	}
+	stepRem := step - 1
+	var pIdx, pStart, pEnd int64
+	if rel+first < pStartOff+pSize {
+		pIdx, pStart, pEnd = 0, 0, pStartOff+pSize-first
+	} else {
+		pIdx = (rel + first - pStartOff) / pSize
+		pStart = pStartOff + pSize*pIdx - first
+		pEnd = pStart + pSize
+	}
+	cStart, cEnd := chunkOf(rel)
+	cEnd = min64(cEnd, total)
+	pEnd = min64(pEnd, total)
+	rescan := true
+
+	out := make([]fs.DAddr, 0, n)
+	undo := func() {
+		for _, d := range out {
+			bm.Free(d)
+		}
+	}
+	// every pass over the volume counts the stride down by its size, so a
+	// free block is found within step + 2 passes of every chunk; more means
+	// the free counts and the bitmap disagree
+	limit := (step + 4) * (total + cSize) * 2
+	for iter := int64(0); len(out) < n; iter++ {
+		if iter > limit {
+			undo()
+			return nil, fmt.Errorf("BAT walk found no free block (free counts disagree with the bitmap)")
+		}
+		bit := rel & 31
+		word := bm.words[rel>>5]
+		if word == 0 {
+			rel += 32 - bit
+			stepRem -= 32 - bit
+			bit = 32
+		} else {
+			if word&(1<<uint(bit)) != 0 {
+				if stepRem <= 0 {
+					d := fs.DAddr(rel + first)
+					if err := bm.MarkUsed(d); err != nil {
+						undo()
+						return nil, err
+					}
+					out = append(out, d)
+					if len(out) >= n {
+						break
+					}
+					stepRem = step
+				} else {
+					rescan = true
+				}
+			}
+			bit++
+			rel++
+			stepRem--
+		}
+
+		if rel >= cEnd {
+			switch {
+			case rescan:
+				rel = cStart
+				rescan = false
+			case rel >= pEnd:
+				if partFree(pIdx) {
+					rel = pStart
+				} else {
+					pIdx++
+					if pIdx >= nParts {
+						rel, pIdx, pStart = 0, 0, 0
+						pEnd = pStartOff + pSize - first
+					} else {
+						pStart = pEnd
+						pEnd = pStart + pSize
+					}
+					pEnd = min64(pEnd, total)
+				}
+				cStart, cEnd = chunkOf(rel)
+			case rel >= total:
+				cStart, cEnd = 0, cOff
+			default:
+				cStart = cEnd
+				cEnd = cStart + cSize
+			}
+			cEnd = min64(cEnd, total)
+		}
+	}
+	bm.cursor = out[len(out)-1] + 1
+	return out, nil
+}
+
 // CountFree counts the free bits.
 func (bm *BATManager) CountFree() int {
 	n := 0
@@ -253,4 +421,11 @@ func (bm *BATManager) Flush() error {
 	}
 	bm.dirty = false
 	return nil
+}
+
+func min64(a, b int64) int64 {
+	if a < b {
+		return a
+	}
+	return b
 }

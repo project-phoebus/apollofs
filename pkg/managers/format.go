@@ -18,8 +18,11 @@ type FormatOptions struct {
 	// SCSI, when set, makes a SCSI volume of that disk instead: no block
 	// headers, and the PV label the SR10.2 invol writes for it (DriveType
 	// and TotalBlocks are not used).
-	SCSI        *drives.SCSIDisk
-	TotalBlocks int    // 0 = the drive's capacity (tests use small values)
+	SCSI *drives.SCSIDisk
+	// TotalBlocks is the disk's size in blocks: 0 = the drive's capacity
+	// (tests use small values).  The volume is smaller by the reserved
+	// cylinders invol keeps at the end.
+	TotalBlocks int
 	PVName      string // PV label name (32 chars, blank padded)
 	LVName      string
 	NodeID      uint32 // node id in generated UIDs (DefaultNodeID if 0)
@@ -42,6 +45,45 @@ const DefaultPagingFilePages = 1024
 const FirstDataBlock = 11
 
 const sysbootPages = 10
+
+// The words invol stores at +0x3F8 of the PV label (process_disk) and of
+// the LV label (create_lv), and the LV label offsets of the time zone name
+// and the last valid time (bat_$label_t tz_name, last_valid_time).
+const (
+	pvLabelMagic   = 0xFEDCA986
+	lvLabelMagic   = 0xFEDCA987
+	lvTZNameOff    = 0xE2
+	lvLastValidOff = 0xE6
+)
+
+// sau2Partitions is create_lv's BAT partition table (SR10): zones of whole
+// cylinders, about 10240 blocks each (0x2800 / blocks per cylinder
+// cylinders), 1 to 64 of them, the first ending on a cylinder boundary;
+// zones the rounding leaves empty are dropped.  It returns the count, the
+// partition_start_offset (the LV block of the first cylinder boundary, 0
+// when the LV starts on one) and the partition size in blocks.
+func sau2Partitions(lvStart fs.DAddr, lvSize, bpc int) (n, startOff, size int) {
+	cyls := lvSize / bpc
+	per := 0x2800 / bpc
+	if per < 1 {
+		per = 1
+	}
+	n = (cyls + per - 1) / per
+	if n < 1 {
+		n = 1
+	}
+	if n > 64 {
+		n = 64
+	}
+	startOff = bpc - int(lvStart)%bpc
+	if startOff == bpc {
+		startOff = 0
+	}
+	cylsPer := (cyls + n - 1) / n
+	size = cylsPer * bpc
+	n -= (cylsPer*n - cyls) / cylsPer
+	return n, startOff, size
+}
 
 func padName(s string) [32]byte {
 	var b [32]byte
@@ -101,6 +143,19 @@ func Format(path string, opt FormatOptions) (*Volume, error) {
 		imageBytes = int64(esdi.AddrEnd()) * fs.BlockSize
 	}
 	bpc := int(dt.BlocksPerTrack) * int(dt.Heads)
+	// The other Winchesters: the SR10.2 sau2 invol (see NOTES.md, "The
+	// SR10.2 sau2 invol").  The disk is the driver's block count (the
+	// drive table's, or TotalBlocks); set_disk_layout keeps the last
+	// cylinders out of the volume for the badspot list and the
+	// diagnostic area.
+	sau2 := opt.SCSI == nil && esdi == nil
+	var addrEnd int
+	var layout drives.InvolLayout
+	if sau2 && bpc != 0 {
+		addrEnd = total
+		layout = drives.WinchesterLayout(dt.DType, bpc)
+		total = addrEnd - layout.Reserved
+	}
 	if total < 2000 || bpc == 0 {
 		return nil, fmt.Errorf("volume too small (%d blocks)", total)
 	}
@@ -137,6 +192,22 @@ func Format(path string, opt FormatOptions) (*Volume, error) {
 	partSize := ((cyls + 31) / 32) * bpc
 	partStart := bpc - 1 // LV block of physical cylinder 1
 	nParts := (lvSize-1-partStart)/partSize + 1
+	partStatus := func(i int) uint32 {
+		if i >= nParts/4 && i < nParts-nParts/4 {
+			return 2
+		}
+		return 1
+	}
+	if sau2 {
+		nParts, partStart, partSize = sau2Partitions(lvStart, lvSize, bpc)
+		lo, hi := (nParts+2)/4, (nParts+2)/4+(nParts+1)/2
+		partStatus = func(i int) uint32 {
+			if i >= lo && i < hi {
+				return 2
+			}
+			return 1
+		}
+	}
 	if nParts > 64 {
 		return nil, fmt.Errorf("too many BAT partitions (%d)", nParts)
 	}
@@ -193,15 +264,38 @@ func Format(path string, opt FormatOptions) (*Volume, error) {
 		pv.PhysBadspotDAddr = fs.DAddr(esdi.BadspotDAddr())
 		pv.Name[len(pv.Name)-1] = 0
 	}
+	if sau2 {
+		// process_disk: total_blocks the usable blocks, addr_end the
+		// disk, the badspot list and diagnostic area set_disk_layout
+		// placed, the name's last byte NUL; the ANSI driver's sector
+		// words, precompensation 0 and the word at 0xC0 0
+		pv.AddrEnd = uint32(addrEnd)
+		pv.PhysBadspotDAddr = fs.DAddr(addrEnd - layout.BadspotBack)
+		pv.PhysDiagDAddr = fs.DAddr(addrEnd - layout.DiagBack)
+		pv.Name[len(pv.Name)-1] = 0
+		if start, size, ok := drives.ANSISectorWords(dt.DType); ok {
+			pv.SectorStart, pv.SectorSize = start, size
+			pv.PreCompCylinder = 0
+			pv.WordC0 = 0
+		}
+	}
 	pv.LVDAddr[0] = lvStart
 	pv.AltLVLabelDAddr[0] = altLV
 	copy(pv.Revision[:], opt.Revision)
 	pvBlock := fs.NewBlock(fs.BlockHeader{ObjectUID: uid.UIDpvlabel, LastWritten: clockh}, pv)
+	if sau2 {
+		binary.BigEndian.PutUint32(pvBlock.Data[0x3F8:], pvLabelMagic)
+	}
 	if err := fs.WriteBlockTo(f, headers, 0, &pvBlock); err != nil {
 		f.Close()
 		return nil, err
 	}
 	lvBlock := fs.NewBlock(fs.BlockHeader{ObjectUID: uid.UIDlvlabel, LastWritten: clockh, PVBlockDAddr: lvStart}, fs.LVLabel{Version: 1})
+	if sau2 {
+		// create_lv: the SR10 word, and no alternate LV label word
+		binary.BigEndian.PutUint32(lvBlock.Data[0x3F8:], lvLabelMagic)
+		binary.BigEndian.PutUint32(lvBlock.Data[0x3FC:], 0xFFFFFFFF)
+	}
 	if err := fs.WriteBlockTo(f, headers, lvStart, &lvBlock); err != nil {
 		f.Close()
 		return nil, err
@@ -239,6 +333,11 @@ func Format(path string, opt FormatOptions) (*Volume, error) {
 		VolumeTrouble:         0xE000,
 		BatStep:               1,
 	}
+	if sau2 {
+		// create_lv stores the LV interleave as the longword step_long
+		l.BATHeader.StepBlocks = 0
+		l.BATHeader.BatStep = uint16(dt.DefaultInterleave())
+	}
 	l.VTOCHeader = fs.VTOCHeader{
 		Version:          2,
 		VTOCSizeInBlocks: int16(4*nBkt - 1),
@@ -246,17 +345,21 @@ func Format(path string, opt FormatOptions) (*Volume, error) {
 	}
 	binary.BigEndian.PutUint16(l.VTOCHeader.VTOCMapData[0:], uint16(nBkt))
 	binary.BigEndian.PutUint32(l.VTOCHeader.VTOCMapData[2:], uint32(bktStart))
-	l.LabelWritten, l.BootTime, l.DismountedTime, l.CurrentTime = clockh, clockh, clockh, clockh
-	l.LastMountedNode = opt.NodeID
+	if sau2 {
+		// create_lv writes only the mount time and the last valid time,
+		// with the time zone name "UTC "; the rest is BAT_$MOUNT's
+		l.LabelWritten = clockh
+		copy(l.Reserved2[lvTZNameOff-0xD0:], "UTC ")
+		binary.BigEndian.PutUint32(l.Reserved2[lvLastValidOff-0xD0:], clockh)
+	} else {
+		l.LabelWritten, l.BootTime, l.DismountedTime, l.CurrentTime = clockh, clockh, clockh, clockh
+		l.LastMountedNode = opt.NodeID
+	}
 	l.NumPartitions = uint16(nParts)
 	l.PartitionStartOffset = uint16(partStart)
 	l.PartitionSize = uint32(partSize)
 	for i := 0; i < nParts; i++ {
-		status := uint32(1)
-		if i >= nParts/4 && i < nParts-nParts/4 {
-			status = 2
-		}
-		l.Partitions[i].StatusVTOCE = status << 24
+		l.Partitions[i].StatusVTOCE = partStatus(i) << 24
 	}
 	v.LV.VTOCMap = fs.VTOCMap{{NumBlocks: uint16(nBkt), FirstBlockDAddr: bktStart}}
 	for i := 1; i < 10; i++ {
@@ -329,6 +432,25 @@ func Format(path string, opt FormatOptions) (*Volume, error) {
 	l.VTOCHeader.DiskEntryDirVTOCX = root.X
 	l.VTOCHeader.NetworkRootDirVTOCX = netRoot.X
 
+	// create_lv's other root objects: /lost+found.list (an empty file),
+	// /sys, /sys/node_data and /sys/node_data/system_logs; node_data's
+	// UID goes in the label at +0xF4
+	var nodeData uid.UID
+	if sau2 {
+		if _, err := v.Names.WriteFile("/lost+found.list", nil, nil, false); err != nil {
+			return nil, err
+		}
+		for _, p := range []string{"/sys", "/sys/node_data", "/sys/node_data/system_logs"} {
+			u, err := v.Names.Mkdir(p, nil, nil)
+			if err != nil {
+				return nil, err
+			}
+			if p == "/sys/node_data" {
+				nodeData = u
+			}
+		}
+	}
+
 	// The OS paging file: an empty, uncatalogued os_pg_file object whose
 	// VTOCX OS_$INIT reads from label+0x5C (VTOC header current_vtoce);
 	// the kernel sets its length itself (FILE_$SET_LEN).  Without it the
@@ -351,9 +473,14 @@ func Format(path string, opt FormatOptions) (*Volume, error) {
 		}
 	}
 	l.VTOCHeader.OSPagingFileVTOCX = pfx
-	// an SR10.3 invol also leaves the paging file's UID at label+0xF4
-	binary.BigEndian.PutUint32(l.Reserved2[0x24:], pf.Header.ObjectUID.Hi)
-	binary.BigEndian.PutUint32(l.Reserved2[0x28:], pf.Header.ObjectUID.Lo)
+	// an SR10.3 invol also leaves the paging file's UID at label+0xF4;
+	// the SR10.2 sau2 invol, node_data's
+	u := pf.Header.ObjectUID
+	if sau2 {
+		u = nodeData
+	}
+	binary.BigEndian.PutUint32(l.Reserved2[0x24:], u.Hi)
+	binary.BigEndian.PutUint32(l.Reserved2[0x28:], u.Lo)
 	if err := v.Flush(); err != nil {
 		return nil, err
 	}
